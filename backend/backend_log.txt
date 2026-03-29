@@ -1,0 +1,29 @@
+nohup: ignoring input
+INFO:     Started server process [872285]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8061 (Press CTRL+C to quit)
+INFO:     36.110.14.195:63483 - "GET /api/v1/projects/?student_id=u_af46dfa6 HTTP/1.1" 200 OK
+[critic][KG] 进入图谱诊断分支。current_mode=learning
+[entity_matcher] 原始输入：我不清楚什么是 TAM（目标可达市场），请结合实际例子给我讲一下？
+[entity_matcher] 归一化输入：我不清楚什么是tam（目标可达市场），请结合实际例子给我讲一下？
+[entity_matcher] 精确命中=[]
+[entity_matcher] 别名命中=[('总潜在市场(TAM)', 'tam')]
+[entity_matcher] 模糊命中阈值=72
+[entity_matcher] 模糊命中=[('总潜在市场(TAM)', 'tam', 100.0), ('可服务潜在市场(SAM)', '可触达市场', 80.0)]
+[entity_matcher] Top 5 模糊候选=[('总潜在市场(TAM)', 'tam', 100.0), ('可服务潜在市场(SAM)', '可触达市场', 80.0), ('用户画像(User Persona)', '目标用户', 50.0), ('价值主张(Value Proposition)', '为什么买', 50.0), ('可获得服务市场(SOM)', '可拿下的市场', 50.0)]
+[entity_matcher] 最终识别结果=['总潜在市场(TAM)', '可服务潜在市场(SAM)']
+[critic][KG] 最终注入模型的 engine_context 成功生成
+[critic] 正在结合 learning 模式引擎上下文调用诊断模型...
+[critic] 模型返回成功，用时 29.87s。
+[planner] 正在生成下一步规划...
+[planner] 任务规划成功。
+[generator] 正在调用模型合成反馈...
+[generator] 模型返回且解析成功。
+INFO:     36.110.14.195:57185 - "POST /api/v1/agent/run HTTP/1.1" 200 OK
+INFO:     111.172.6.207:14715 - "GET / HTTP/1.1" 200 OK
+INFO:     111.172.6.207:16461 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [872285]

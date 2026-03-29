@@ -1,0 +1,18 @@
+nohup: ignoring input
+ INFO  Accepting connections at http://0.0.0.0:8060
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 GET /
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 Returned 200 in 26 ms
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 GET /assets/index-6KPs5GOm.js
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 Returned 304 in 4 ms
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 GET /assets/index-Cty3yq8T.css
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 Returned 304 in 3 ms
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 GET /favicon.svg
+ HTTP  3/23/2026 8:37:36 PM 36.110.14.195 Returned 304 in 2 ms
+ HTTP  3/23/2026 8:56:09 PM 36.110.14.195 GET /
+ HTTP  3/23/2026 8:56:09 PM 36.110.14.195 Returned 304 in 3 ms
+ HTTP  3/23/2026 8:56:10 PM 36.110.14.195 GET /assets/index-6KPs5GOm.js
+ HTTP  3/23/2026 8:56:10 PM 36.110.14.195 Returned 304 in 2 ms
+ HTTP  3/23/2026 8:56:10 PM 36.110.14.195 GET /assets/index-Cty3yq8T.css
+ HTTP  3/23/2026 8:56:10 PM 36.110.14.195 Returned 304 in 2 ms
+ HTTP  3/23/2026 8:56:10 PM 36.110.14.195 GET /favicon.svg
+ HTTP  3/23/2026 8:56:10 PM 36.110.14.195 Returned 304 in 1 ms

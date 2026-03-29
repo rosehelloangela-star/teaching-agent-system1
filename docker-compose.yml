@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # 1. 前端服务 (分配端口: 8060)
+  frontend:
+    build: ./frontend
+    container_name: group06_frontend
+    ports:
+      - "8060:80"    # 假设你的前端 Dockerfile 将项目部署在 80 端口
+    depends_on:
+      - backend
+    networks:
+      - agent_net
+
+  # 2. 后端服务 (分配端口: 8061)
+  backend:
+    build: ./backend
+    container_name: group06_backend
+    ports:
+      - "8061:8000"  # FastAPI 默认运行在 8000 端口，映射到外部的 8061
+    environment:
+      # 告诉后端去哪里找 Neo4j 数据库。注意这里用的是服务名 neo4j_db
+      - NEO4J_URI=bolt://neo4j_db:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password  # 【请在此修改你的图数据库密码】
+    # volumes:
+      # 将后端目录挂载进容器。如果你用的是 SQLite，这样可以确保数据库文件持久化保存，重启不会丢失
+    #  - ./backend:/app
+    depends_on:
+      - neo4j_db
+    networks:
+      - agent_net
+
+  # 3. Neo4j 知识图谱数据库 (分配端口: 8062, 8063)
+  neo4j_db:
+    # 删掉原来那串很长的华为云地址，直接用服务器上现成的版本：
+    image: neo4j:5.25.1
+    container_name: group06_neo4j
+    environment:
+      # 设置初始密码，必须和上面后端 environment 里的密码一致
+      - NEO4J_AUTH=neo4j/password  # 【请在此修改你的图数据库密码】
+    ports:
+      - "8062:7474"  # Neo4j Web 界面访问端口
+      - "8063:7687"  # Bolt 协议数据连接端口
+    volumes:
+      - neo4j_data:/data  # 持久化存储图谱数据
+    networks:
+      - agent_net
+
+# 定义网络，让这三个容器能互相通信
+networks:
+  agent_net:
+    driver: bridge
+
+# 定义数据卷，用于存储图谱数据
+volumes:
+  neo4j_data:
