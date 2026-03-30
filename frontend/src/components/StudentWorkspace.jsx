@@ -57,7 +57,8 @@
 // }
 
 import React from 'react';
-import FreeChatView from './FreeChatView';
+// 注意这里变成了 ./chat/FreeChatView
+import FreeChatView from './chat/FreeChatView'; 
 
 export default function StudentWorkspace({ currentUser }) {
   return (

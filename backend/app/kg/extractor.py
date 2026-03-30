@@ -10,6 +10,62 @@ from app.agents.mechanism.llm_config import get_llm
 from app.core.json_utils import message_content_to_text, extract_first_json_value
 from app.core.text_cleaner import clean_pdf_text
 
+def extract_project_logic_network(text: str) -> Dict[str, Any]:
+    """
+    【专为前端可视化设计】
+    只提取学生项目文本中的商业要素，并用干净的 "LINK" 连线串联，不带任何学术关系词。
+    """
+    if not text or not text.strip(): 
+        return {"triplets": []}
+        
+    llm = get_llm(temperature=0.1, max_tokens=2000)
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """
+        你是顶级的商业逻辑分析师。请仔细阅读学生提交的项目文本，提取出项目的【底层逻辑推演图】。
+        
+        === 任务：提取商业逻辑网络 (Triplets) ===
+        请忽略任何学术教案用语，直接提取项目中实实在在的商业要素作为节点，并梳理它们之间的逻辑推导连线。
+        - 节点(head/tail)必须是极其具体的词：例如“大学生群体”、“拿快递难”、“防丢手环”、“99元买断”、“小红书投放”。
+        - 关系(relation)请固定填写 "LINK" 即可，不需要做复杂的分类。
+        
+        请遵循商业常识的因果指向：
+        1. 目标客群 -> 核心痛点
+        2. 核心痛点 -> 解决方案(产品)
+        3. 解决方案 -> 盈利模式(收入)
+        4. 解决方案 -> 营销渠道
+        
+        【输出格式要求（⚠️致命红线：严格的 JSON 格式）】
+        1. 只能输出一个合法的 JSON 对象，不要附加任何 Markdown 标记。
+        2. 字符串内双引号必须转义（\\"），禁止出现物理换行符（用 \\n 代替）。
+        
+        示例：
+        {{
+            "triplets": [
+                {{"head": "独居青年", "relation": "LINK", "tail": "陪伴需求"}},
+                {{"head": "陪伴需求", "relation": "LINK", "tail": "AI虚拟宠物"}},
+                {{"head": "AI虚拟宠物", "relation": "LINK", "tail": "按月订阅收费"}},
+                {{"head": "AI虚拟宠物", "relation": "LINK", "tail": "B站UP主推广"}}
+            ]
+        }}
+        """),
+        ("user", "提取以下项目文本中的商业逻辑网络：\n{text}")
+    ])
+    
+    try:
+        response = (prompt | llm).invoke({"text": text})
+        parsed_data = extract_first_json_value(message_content_to_text(response))
+        
+        if isinstance(parsed_data, dict):
+            return {
+                "triplets": parsed_data.get("triplets", [])
+            }
+        return {"triplets": []}
+        
+    except Exception as e:
+        print(f"[Extractor - Logic Network] 逻辑网络抽取失败: {e}", flush=True)
+        return {"triplets": []}
+
 # 引入 Neo4j 存储实例
 from app.kg.graph_store import kg_store
 

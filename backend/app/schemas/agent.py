@@ -51,3 +51,5 @@ class AgentRunResponse(BaseModel):
     bound_file_name: Optional[str] = None
     bound_file_uploaded_at: Optional[datetime] = None
     analysis_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    # 【新增】传递超图可视化数据到前端分析面板
+    hypergraph_data: Dict[str, Any] = Field(default_factory=dict)

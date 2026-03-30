@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, User, Bot, ArrowLeft, CheckCircle, FolderGit2, Paperclip, UploadCloud, FileText, X } from 'lucide-react';
 import { runAgentStream, fetchProjects, createProject, syncProjectChat } from '../api';
-import { StructuredResponseRenderer, ThinkingProcess } from './FreeChatView';
+// 【修改点】：分别从各自的独立文件中默认导入
+import StructuredResponseRenderer from './chat/StructuredResponseRenderer';
+import ThinkingProcess from './chat/ThinkingProcess';
 
 export default function ProjectWorkspaceView({ currentUser }) {
   const [projects, setProjects] = useState([]);

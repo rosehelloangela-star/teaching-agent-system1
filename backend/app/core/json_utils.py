@@ -4,6 +4,16 @@ from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel
 
+# 【新增】安全解析 JSON 的辅助函数
+def _safe_json_loads(text: str, default: Any = None) -> Any:
+    """安全解析 JSON 字符串，解析失败时返回默认值"""
+    try:
+        if not text or not isinstance(text, str):
+            return default if default is not None else {}
+        return json.loads(text)
+    except Exception:
+        return default if default is not None else {}
+
 T = TypeVar("T", bound=BaseModel)
 
 

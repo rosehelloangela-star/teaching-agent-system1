@@ -53,8 +53,14 @@ class HypergraphEngine:
         ========================================================
         利用图论属性（交集、子集、度数、连通性）判断商业逻辑的断层
         """
-        if not self.hg:
-            return [{"rule": "System", "issue": "超图未初始化或提取为空，项目缺乏基础业务实体。", "severity": "high"}]
+        # 【修复点】：增加 len 判断，且补充缺失的 "name" 键
+        if not self.hg or len(self.hg.edges) == 0:
+            return [{
+                "rule": "System", 
+                "name": "图谱元素过少", 
+                "issue": "当前文本信息过少或大模型未提取到有效超边，无法进行拓扑网络检测。", 
+                "severity": "high"
+            }]
 
         alerts = []
         
