@@ -104,7 +104,6 @@ export default function LoginRegisterPage({ onLoginSuccess }) {
                   <input required value={realName} onChange={e => setRealName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-sm" placeholder="如：张三" />
                 </div>
 
-                // 找到这一段代码
                 {role === 'student' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">所属班级 (学生必填)</label>
@@ -135,9 +134,18 @@ export default function LoginRegisterPage({ onLoginSuccess }) {
             <button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-sm text-brand-600 hover:text-brand-800 font-medium">
               {isLogin ? '没有账号？点击注册新账号 →' : '已有账号？返回登录 ←'}
             </button>
+          {/* 👇 === 新增这部分：助教测试提示 === 👇 */}
+            <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400">
+              <p>💡 提示：</p>
+              <p className="mt-1">
+                管理员账号：<code className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded font-mono">admin</code> / 
+                密码：<code className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded font-mono">123456</code>
+              </p>
+            </div>
+            {/* 👆 === 新增结束 === 👆 */}
+          </div>
           </div>
         </div>
       </div>
-    </div>
   );
 }

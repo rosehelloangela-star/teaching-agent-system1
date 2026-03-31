@@ -4,7 +4,7 @@ import ClassInsightsView from './ClassInsightsView';
 import ProjectAssessmentView from './ProjectAssessmentView';
 import StudentProfileView from './StudentProfileView';
 
-export default function TeacherDashboard() {
+export default function TeacherDashboard({ currentUser }) {
   const [activeTab, setActiveTab] = useState('insights');
 
   return (
@@ -51,7 +51,7 @@ export default function TeacherDashboard() {
 
       {/* 右侧内容区 */}
       <div className="flex-1 flex overflow-hidden bg-slate-50">
-        {activeTab === 'insights' && <ClassInsightsView />}
+        {activeTab === 'insights' && <ClassInsightsView currentUser={currentUser} />} {/* <-- 这里加上 currentUser */}
         {activeTab === 'assessment' && <ProjectAssessmentView />}
         {activeTab === 'profile' && <StudentProfileView />}
       </div>

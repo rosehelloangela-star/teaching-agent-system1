@@ -58,9 +58,11 @@ function App() {
               <span>{currentUser.real_name}</span>
               {/* 根据角色显示不同的颜色标签 */}
               <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold ${
-                currentUser.role === 'teacher' ? 'bg-orange-200 text-orange-800' : 'bg-blue-200 text-blue-800'
+                currentUser.role === 'admin' ? 'bg-red-200 text-red-800' :
+                currentUser.role === 'teacher' ? 'bg-orange-200 text-orange-800' : 
+                'bg-blue-200 text-blue-800'
               }`}>
-                {currentUser.role === 'teacher' ? '导师' : '学生'}
+                {currentUser.role === 'admin' ? '管理员' : currentUser.role === 'teacher' ? '导师' : '学生'}
               </span>
             </div>
             
