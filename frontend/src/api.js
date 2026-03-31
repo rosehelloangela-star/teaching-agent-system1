@@ -463,3 +463,36 @@ export const registerUser = async (userData) => {
     throw error.response?.data?.detail || '注册失败，请更换账号名重试';
   }
 };
+
+/* =========================
+   Admin Portal APIs
+========================= */
+export const fetchAdminUsers = async () => {
+  const response = await api.get('/admin/users');
+  return response.data;
+};
+
+export const batchRegisterUsers = async (usersData) => {
+  const response = await api.post('/admin/users/batch', { users: usersData });
+  return response.data;
+};
+
+export const deleteUser = async (userId) => {
+  const response = await api.delete(`/admin/users/${userId}`);
+  return response.data;
+};
+
+export const resetUserPassword = async (userId, newPassword) => {
+  const response = await api.put(`/admin/users/${userId}/password`, { new_password: newPassword });
+  return response.data;
+};
+
+export const updateUserRole = async (userId, role) => {
+  const response = await api.put(`/admin/users/${userId}/role`, { role });
+  return response.data;
+};
+
+export const fetchAdminStats = async () => {
+  const response = await api.get('/admin/stats');
+  return response.data;
+};

@@ -397,6 +397,9 @@ export default function FreeChatView({ currentUser }) {
                 activeMode
               );
             }
+            if (activeMode === 'project' || activeMode === 'competition') {
+              setSnapshotOpen(true);
+            }
             return;
           }
 

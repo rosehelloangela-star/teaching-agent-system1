@@ -104,10 +104,22 @@ export default function LoginRegisterPage({ onLoginSuccess }) {
                   <input required value={realName} onChange={e => setRealName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-sm" placeholder="如：张三" />
                 </div>
 
+                // 找到这一段代码
                 {role === 'student' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">所属班级 (学生必填)</label>
-                    <input required value={className} onChange={e => setClassName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-sm" placeholder="如：23级计科一班" />
+                    {/* 将 input 替换为 select 下拉框 */}
+                    <select 
+                      required 
+                      value={className} 
+                      onChange={e => setClassName(e.target.value)} 
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-sm bg-white" 
+                    >
+                      <option value="" disabled>请选择班级 (1-10班)</option>
+                      {[...Array(10)].map((_, i) => (
+                        <option key={i+1} value={`${i+1}班`}>{`${i+1}班`}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import StudentWorkspace from './components/StudentWorkspace';
 import TeacherDashboard from './components/TeacherDashboard';
 import LoginRegisterPage from './components/LoginRegisterPage';
+import AdminPortal from './components/AdminPortal';
 import { GraduationCap, LogOut, User } from 'lucide-react';
 
 function App() {
@@ -79,11 +80,7 @@ function App() {
           {/* 把 currentUser 当作 props 传给子组件，这样里面就能用到真实的 user ID 了 */}
           {currentUser.role === 'student' && <StudentWorkspace currentUser={currentUser} />}
           {currentUser.role === 'teacher' && <TeacherDashboard currentUser={currentUser} />}
-          {currentUser.role === 'admin' && (
-            <div className="flex items-center justify-center h-full text-slate-500">
-              管理员后台 (Admin Dashboard) 待开发...
-            </div>
-          )}
+          {currentUser.role === 'admin' && <AdminPortal />}
         </div>
       </main>
     </div>
