@@ -431,3 +431,4 @@ def get_class_insights(class_name: str, db: Session = Depends(get_db)):
         "top_mistakes": top_mistakes,
         "teaching_interventions": teaching_interventions,
     }
+

@@ -1188,3 +1188,5 @@ def generator_node(state: dict) -> dict:
     except Exception as e:
         log_and_emit(state, "generator", f"模型调用或解析失败：{e}", level="error")
         raise ValueError(f"生成器执行失败，未能生成有效格式：{str(e)}")
+
+

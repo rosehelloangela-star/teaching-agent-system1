@@ -8,8 +8,7 @@
 //   const [activeTab, setActiveTab] = useState('insights');
 
 //   return (
-//     <div className="flex h-[calc(100vh-64px)] bg-slate-50 overflow-hidden">
-//       {/* 教师端专属左侧导航 */}
+//     <div className="flex h-[calc(100vh-64px)] min-h-0 bg-slate-50 overflow-hidden">
 //       <div className="w-64 bg-slate-900 flex flex-col shrink-0 z-20 shadow-xl">
 //         <div className="p-6 border-b border-slate-800">
 //           <h2 className="text-white font-bold flex items-center gap-2">
@@ -18,9 +17,9 @@
 //           </h2>
 //           <p className="text-slate-400 text-xs mt-1">教学干预与数据分析中心</p>
 //         </div>
-        
+
 //         <div className="flex flex-col p-4 gap-2">
-//           <button 
+//           <button
 //             onClick={() => setActiveTab('insights')}
 //             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${
 //               activeTab === 'insights' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -28,8 +27,8 @@
 //           >
 //             <Users size={18} /> 班级学情洞察
 //           </button>
-          
-//           <button 
+
+//           <button
 //             onClick={() => setActiveTab('assessment')}
 //             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${
 //               activeTab === 'assessment' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -38,7 +37,7 @@
 //             <FileCheck size={18} /> 单项目复核批改
 //           </button>
 
-//           <button 
+//           <button
 //             onClick={() => setActiveTab('profile')}
 //             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${
 //               activeTab === 'profile' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -49,16 +48,20 @@
 //         </div>
 //       </div>
 
-//       {/* 右侧内容区 */}
-//       <div className="flex-1 flex overflow-hidden bg-slate-50">
-//         {activeTab === 'insights' && <ClassInsightsView currentUser={currentUser} />} {/* <-- 这里加上 currentUser */}
-//         {activeTab === 'assessment' && <ProjectAssessmentView />}
-//         {activeTab === 'profile' && <StudentProfileView />}
+//       <div className="flex-1 min-h-0 overflow-hidden bg-slate-50 flex flex-col">
+//         <div className={activeTab === 'insights' ? 'flex-1 min-h-0 flex' : 'hidden'}>
+//           <ClassInsightsView currentUser={currentUser} />
+//         </div>
+//         <div className={activeTab === 'assessment' ? 'flex-1 min-h-0 flex' : 'hidden'}>
+//           <ProjectAssessmentView />
+//         </div>
+//         <div className={activeTab === 'profile' ? 'flex-1 min-h-0 flex' : 'hidden'}>
+//           <StudentProfileView />
+//         </div>
 //       </div>
 //     </div>
 //   );
 // }
-
 
 import React, { useState } from 'react';
 import { Users, FileCheck, UserCog, LayoutDashboard } from 'lucide-react';
@@ -115,10 +118,10 @@ export default function TeacherDashboard({ currentUser }) {
           <ClassInsightsView currentUser={currentUser} />
         </div>
         <div className={activeTab === 'assessment' ? 'flex-1 min-h-0 flex' : 'hidden'}>
-          <ProjectAssessmentView />
+          <ProjectAssessmentView currentUser={currentUser} />
         </div>
         <div className={activeTab === 'profile' ? 'flex-1 min-h-0 flex' : 'hidden'}>
-          <StudentProfileView />
+          <StudentProfileView currentUser={currentUser} />
         </div>
       </div>
     </div>
