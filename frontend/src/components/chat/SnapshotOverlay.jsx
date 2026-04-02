@@ -78,6 +78,7 @@ export default function SnapshotOverlay({ open, snapshot }) {
     return text;
   };
 
+  // 🔴 核心改动 1：使用二分图（Bipartite）重构超图数据
   const graphData = useMemo(() => {
     if (!hypergraph) return { nodes: [], links: [] };
     const nodesData = [];
@@ -86,39 +87,51 @@ export default function SnapshotOverlay({ open, snapshot }) {
     const discreteNodes = hypergraph.nodes || [];
     const edges = hypergraph.edges || {};
 
+    // 1. 注入实体节点 (Entity Nodes)
     discreteNodes.forEach((nodeName) => {
       if (!nodeSet.has(nodeName)) {
-        nodesData.push({ id: nodeName, group: 1 });
+        nodesData.push({ id: nodeName, group: 1, type: 'entity' });
         nodeSet.add(nodeName);
       }
     });
 
+    // 2. 把“边”提取为关系节点 (Relation Nodes)
     Object.entries(edges).forEach(([edgeName, linkedNodes]) => {
       const formattedEdge = formatNodeName(edgeName);
+      const edgeNodeId = `REL_${edgeName}`; // 加前缀防止和实体ID重名
+
+      // 创建“关系节点”
+      nodesData.push({ 
+        id: edgeNodeId, 
+        label: formattedEdge, 
+        group: 3, 
+        type: 'relation' 
+      });
+
       linkedNodes.forEach((nodeRawId) => {
         if (!nodeSet.has(nodeRawId)) {
-          nodesData.push({ id: nodeRawId, group: 2 });
+          nodesData.push({ id: nodeRawId, group: 2, type: 'entity' });
           nodeSet.add(nodeRawId);
         }
+        // 将实体节点与关系节点相连，不再互相连，极大减少连线数量！
+        linksData.push({
+          source: nodeRawId,
+          target: edgeNodeId,
+        });
       });
-      for (let i = 0; i < linkedNodes.length; i += 1) {
-        for (let j = i + 1; j < linkedNodes.length; j += 1) {
-          linksData.push({
-            source: linkedNodes[i],
-            target: linkedNodes[j],
-            label: formattedEdge,
-          });
-        }
-      }
     });
 
     return { nodes: nodesData, links: linksData };
   }, [hypergraph]);
 
+  // 🔴 核心改动 2：调整物理引擎参数，适配星型拓扑
   useEffect(() => {
     if (open && fgRef.current) {
-      fgRef.current.d3Force('charge').strength(-400);
-      fgRef.current.d3Force('link').distance(80);
+      // 斥力适当减小，因为不再有两两相连的紧凑拉力
+      fgRef.current.d3Force('charge').strength(-800); 
+      // 连线距离调短，让实体紧紧围绕在“关系节点”周围
+      fgRef.current.d3Force('link').distance(90);    
+      fgRef.current.d3VelocityDecay(0.15);              
     }
   }, [open, graphData]);
 
@@ -184,49 +197,82 @@ export default function SnapshotOverlay({ open, snapshot }) {
             height={320}
             graphData={graphData}
             d3VelocityDecay={0.1}
-            linkCanvasObject={(link, ctx, globalScale) => {
-              const start = link.source;
-              const end = link.target;
-              if (!start || !end || typeof start.x !== 'number' || typeof end.x !== 'number') return;
-              const label = link.label || '';
-              const textPx = 10 / globalScale;
-              const midX = (start.x + end.x) / 2;
-              const midY = (start.y + end.y) / 2;
-              ctx.font = `${textPx}px Sans-Serif`;
-              const textWidth = ctx.measureText(label).width;
-              ctx.save();
-              ctx.fillStyle = 'rgba(255,255,255,0.9)';
-              ctx.fillRect(midX - textWidth / 2 - 4, midY - textPx / 2 - 2, textWidth + 8, textPx + 4);
-              ctx.fillStyle = '#64748b';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(label, midX, midY);
-              ctx.restore();
-            }}
+            // 🔴 核心改动 3：去除 linkCanvasObject，使用默认线条即可。不需要在线上写字了！
+            linkColor={() => '#cbd5e1'}
+            linkWidth={1.5}
+            
+            // 🔴 核心改动 4：节点渲染区分“实体”和“关系”
             nodeCanvasObject={(node, ctx, globalScale) => {
-              const label = getVisualLabel(node.id);
-              const fontSize = 12 / globalScale;
-              ctx.font = `${fontSize}px Sans-Serif`;
-              const textWidth = ctx.measureText(label).width;
-              const bckgDimensions = [textWidth + 18, fontSize + 10];
-              ctx.fillStyle = node.group === 1 ? 'rgba(248, 250, 252, 0.95)' : 'rgba(239, 246, 255, 0.95)';
-              ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
-              ctx.strokeStyle = node.group === 1 ? '#cbd5e1' : '#3b82f6';
-              ctx.lineWidth = 1 / globalScale;
-              ctx.strokeRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillStyle = node.group === 1 ? '#64748b' : '#1e40af';
-              ctx.fillText(label, node.x, node.y);
-              node.__bckgDimensions = bckgDimensions;
-            }}
-            nodePointerAreaPaint={(node, color, ctx) => {
-              ctx.fillStyle = color;
-              const bckgDimensions = node.__bckgDimensions;
-              if (bckgDimensions) {
-                ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
-              }
-            }}
+               const isRelation = node.type === 'relation';
+               const label = isRelation ? node.label : getVisualLabel(node.id);
+               
+               const fontSize = isRelation ? 12 / globalScale : 14 / globalScale;
+               ctx.font = `${isRelation ? '700' : '600'} ${fontSize}px Sans-Serif`; 
+               const textWidth = ctx.measureText(label).width;
+               
+               const paddingX = isRelation ? 24 : 36;
+               const paddingY = isRelation ? 16 : 24;
+               const w = textWidth + paddingX / globalScale; 
+               const h = fontSize + paddingY / globalScale;
+
+               const x = node.x - w / 2;
+               const y = node.y - h / 2;
+               // 关系节点用全圆角(胶囊形)，实体节点用微圆角
+               const r = isRelation ? h / 2 : 8 / globalScale; 
+               
+               // 画路径
+               ctx.beginPath();
+               ctx.moveTo(x + r, y);
+               ctx.lineTo(x + w - r, y);
+               ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+               ctx.lineTo(x + w, y + h - r);
+               ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+               ctx.lineTo(x + r, y + h);
+               ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+               ctx.lineTo(x, y + r);
+               ctx.quadraticCurveTo(x, y, x + r, y);
+               ctx.closePath();
+               
+               // 填充颜色：关系节点用醒目的暖色，实体用冷色
+               if (isRelation) {
+                 ctx.fillStyle = 'rgba(245, 158, 11, 0.95)'; // Amber
+                 ctx.strokeStyle = '#d97706';
+                 ctx.fillStyleText = '#ffffff';
+               } else {
+                 ctx.fillStyle = node.group === 1 ? 'rgba(241, 245, 249, 0.95)' : 'rgba(239, 246, 255, 0.95)';
+                 ctx.strokeStyle = node.group === 1 ? '#cbd5e1' : '#3b82f6';
+                 ctx.fillStyleText = node.group === 1 ? '#64748b' : '#1e40af';
+               }
+
+               ctx.fill();
+               ctx.lineWidth = 1.5 / globalScale; 
+               ctx.stroke();
+               
+               // 文字
+               ctx.textAlign = 'center';
+               ctx.textBaseline = 'middle';
+               ctx.fillStyle = ctx.fillStyleText;
+               ctx.fillText(label, node.x, node.y);
+               
+               node.__bckgDimensions = [w * globalScale, h * globalScale];
+             }}
+
+             nodePointerAreaPaint={(node, color, ctx) => {
+               ctx.fillStyle = color;
+               const bckgDimensions = node.__bckgDimensions;
+               if (bckgDimensions) {
+                 ctx.fillRect(
+                   node.x - bckgDimensions[0] / 2, 
+                   node.y - bckgDimensions[1] / 2, 
+                   bckgDimensions[0], 
+                   bckgDimensions[1]
+                 );
+               } else {
+                 ctx.beginPath();
+                 ctx.arc(node.x, node.y, 20, 0, 2 * Math.PI, false);
+                 ctx.fill();
+               }
+             }}
           />
         </div>
       </div>
