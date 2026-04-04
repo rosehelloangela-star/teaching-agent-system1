@@ -46,7 +46,7 @@ PROJECT_STAGE_DEFINITIONS: List[Dict[str, object]] = [
             {"label": "价值/方案表达", "keys": ["Value_Proposition", "Solution"], "min_hits": 1},
         ],
         "entry_message": "第一阶段会重点检查：你是否真的说清了目标用户、痛点和价值主张。",
-        "milestone_message": "恭喜你突破了第一阶段【价值主张与客户边界】，系统已进入第二阶段【盈利逻辑与生存压力测试】。",
+        "milestone_message": "恭喜你突破了第一阶段【价值主张与客户边界】，系统已进入第二阶段【盈利逻辑与生存压力测试】。为了降低后续的对话记忆负担，强烈建议您将当前阶段确认的内容更新到原商业计划书中，并重新点击“更新文档”进行绑定后再继续冲刺！",
     },
     {
         "id": "stage_2_logic",
@@ -67,7 +67,7 @@ PROJECT_STAGE_DEFINITIONS: List[Dict[str, object]] = [
             {"label": "生存压力", "keys": ["Startup_Capital", "Burn_Rate", "Account_Period", "Financial_Model", "Key_Assumption"], "min_hits": 1},
         ],
         "entry_message": "第二阶段会重点检查：谁付钱、为什么愿意付、你不融资能活多久。",
-        "milestone_message": "恭喜你突破了第二阶段【盈利逻辑与生存压力测试】，系统已进入第三阶段【资源杠杆与落地可行性】。",
+        "milestone_message": "恭喜你突破了第二阶段【盈利逻辑与生存压力测试】，系统已进入第三阶段【资源杠杆与落地可行性】。同样强烈建议您先将本轮结论补充到BP中并重新更新绑定文档，以保持最佳的系统分析上下文！",
     },
     {
         "id": "stage_3_reality",

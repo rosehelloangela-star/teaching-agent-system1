@@ -75,14 +75,16 @@ def update_role(user_id: str, request: RoleUpdate, db: Session = Depends(get_db)
     raise HTTPException(status_code=404, detail="用户不存在")
 
 @router.put("/users/{user_id}/classes")
-def assign_classes_to_teacher(user_id: str, request: ClassAssign, db: Session = Depends(get_db)):
+def assign_classes_to_user(user_id: str, request: ClassAssign, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if user:
-        if user.role != "teacher":
-            raise HTTPException(status_code=400, detail="只能给导师分配班级")
+        # 去掉了 "只能给导师分配班级" 的拦截逻辑
         user.class_name = request.classes
         db.commit()
-        return {"message": f"成功为导师分配班级：{request.classes}"}
+        
+        role_label = "导师" if user.role == "teacher" else "学生" if user.role == "student" else "用户"
+        return {"message": f"成功为{role_label}分配班级：{request.classes}"}
+        
     raise HTTPException(status_code=404, detail="用户不存在")
 
 @router.get("/classes/stats")

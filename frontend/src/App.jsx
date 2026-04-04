@@ -78,7 +78,7 @@ function App() {
 
       {/* 主体内容区：根据角色自动路由 */}
       <main className="flex-1 bg-slate-50/50">
-        <div className="max-w-7xl mx-auto h-full">
+        <div className="w-full h-full">
           {/* 把 currentUser 当作 props 传给子组件，这样里面就能用到真实的 user ID 了 */}
           {currentUser.role === 'student' && <StudentWorkspace currentUser={currentUser} />}
           {currentUser.role === 'teacher' && <TeacherDashboard currentUser={currentUser} />}

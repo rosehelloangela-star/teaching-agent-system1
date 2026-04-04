@@ -1,7 +1,7 @@
 // import React, { useEffect, useMemo, useRef, useState } from 'react';
 // import {
 //   Plus, MessageSquare, Send, FileText, BookOpen, Briefcase, Trophy,
-//   Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw
+//   Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock
 // } from 'lucide-react';
 // import {
 //   API_BASE_URL, bindConversationFile, createConversation, fetchConversations,
@@ -71,12 +71,12 @@
 //     isError: !!msg.isError,
 //     thinking: msg.thinking
 //       ? {
-//           role: msg.thinking.role || '',
-//           diagnosis: msg.thinking.diagnosis || '',
-//           tasks: Array.isArray(msg.thinking.tasks) ? msg.thinking.tasks : [],
-//           logs: Array.isArray(msg.thinking.logs) ? msg.thinking.logs : [],
-//           status: msg.thinking.status || 'done',
-//         }
+//         role: msg.thinking.role || '',
+//         diagnosis: msg.thinking.diagnosis || '',
+//         tasks: Array.isArray(msg.thinking.tasks) ? msg.thinking.tasks : [],
+//         logs: Array.isArray(msg.thinking.logs) ? msg.thinking.logs : [],
+//         status: msg.thinking.status || 'done',
+//       }
 //       : null,
 //   }));
 // }
@@ -113,6 +113,141 @@
 //   '路演答辩时，评委最喜欢问的 3 个致命问题是什么？该怎么准备？',
 //   '我的项目是关于校园跑腿外卖的，我应该如何进行竞品分析？',
 // ];
+
+// function getProjectStageFlow(conversation) {
+//   return conversation?.analysisSnapshot?.project?.stage_flow || null;
+// }
+
+// function StageChip({ label, status }) {
+//   const statusClass =
+//     status === 'passed'
+//       ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+//       : status === 'current'
+//         ? 'bg-orange-50 border-orange-200 text-orange-700'
+//         : 'bg-slate-50 border-slate-200 text-slate-400';
+
+//   return (
+//     <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${statusClass}`}>
+//       {status === 'passed' ? <CheckCircle2 size={14} /> : status === 'current' ? <Sparkles size={14} /> : <Lock size={14} />}
+//       <span>{label}</span>
+//     </div>
+//   );
+// }
+
+// function ProjectStageBanner({ stageFlow }) {
+//   const [expanded, setExpanded] = useState(false);
+
+//   if (!stageFlow) return null;
+
+//   const stages = Object.values(stageFlow.stages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+//   const currentStage = stages.find((item) => item.id === stageFlow.current_stage_id) || stages[0];
+//   const followups = stageFlow.current_followup_questions || [];
+//   const summary = stageFlow.stage_progress_summary || {};
+//   const gate = stageFlow.current_stage_gate || {};
+//   const blockers = gate.blocked_reasons || [];
+//   const blockerSummary = blockers.map((item) => item.label).join('、');
+//   const compactStatusText = gate.ready
+//     ? '已满足当前阶段进阶条件'
+//     : (blockerSummary || '仍有条件未满足');
+
+//   return (
+//     <div className="px-4 py-2.5 bg-amber-50/60 border-b border-amber-100">
+//       <div className="flex items-center justify-between gap-3 flex-wrap">
+//         <div className="min-w-0 flex-1">
+//           <div className="text-[11px] font-bold text-amber-500 mb-1">项目模式 · 三阶段推进</div>
+//           <div className="flex items-center gap-2 flex-wrap">
+//             <div className="text-sm font-bold text-slate-800">
+//               第{stageFlow.current_stage_index}阶段【{stageFlow.current_stage_label}】
+//             </div>
+//             <span className="inline-flex items-center gap-1 rounded-full bg-white border border-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+//               进度 {currentStage?.progress_pct ?? 0}%
+//             </span>
+//             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border ${gate.ready ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-600'}`}>
+//               {compactStatusText}
+//             </span>
+//           </div>
+//           <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+//             通关条件：进度≥{currentStage?.pass_threshold ?? 80}% + 关键高危规则控制在允许范围内 + 结构锚点达到要求
+//           </div>
+//         </div>
+
+//         <button
+//           type="button"
+//           onClick={() => setExpanded((prev) => !prev)}
+//           className="inline-flex items-center gap-1 rounded-lg bg-white border border-amber-200 px-2.5 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 shrink-0"
+//         >
+//           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+//           {expanded ? '收起详情' : '展开详情'}
+//         </button>
+//       </div>
+
+//       {expanded && (
+//         <div className="mt-3 space-y-3">
+//           <div className="flex items-start justify-between gap-4 flex-wrap">
+//             <div className="min-w-0">
+//               <div className="text-xs text-slate-600 leading-relaxed">
+//                 {currentStage?.coach_hint || stageFlow.current_stage_entry_message || '系统会优先围绕当前阶段问题做追问和推进。'}
+//               </div>
+//             </div>
+//             <div className="rounded-xl bg-white border border-amber-200 px-3 py-2 text-right shadow-sm">
+//               <div className="text-[11px] text-amber-600 font-semibold">当前阶段进度</div>
+//               <div className="text-lg font-bold text-amber-700">{currentStage?.progress_pct ?? 0}%</div>
+//               <div className="text-[11px] text-slate-500">门槛 {currentStage?.pass_threshold ?? 80}%</div>
+//             </div>
+//           </div>
+
+//           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+//             {stages.map((stage) => (
+//               <StageChip key={stage.id} label={stage.label} status={stage.status} />
+//             ))}
+//           </div>
+
+//           <div className="flex items-center gap-3 flex-wrap text-xs text-slate-600">
+//             <span className="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2.5 py-1">
+//               已解 {summary.resolved_rules ?? 0}/{summary.total_rules ?? 0} 条本轮规则
+//             </span>
+//             <span className="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2.5 py-1">
+//               关键高危剩余 {summary.critical_remaining ?? 0} 条
+//             </span>
+//             {(summary.sticky_watchlist ?? 0) > 0 && (
+//               <span className="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2.5 py-1">
+//                 待观察回摆 {summary.sticky_watchlist ?? 0} 条
+//               </span>
+//             )}
+//           </div>
+
+//           {blockers.length > 0 && (
+//             <div className="rounded-xl bg-white border border-amber-100 p-3">
+//               <div className="text-xs font-bold text-amber-700 mb-2">当前未进阶原因</div>
+//               <ul className="space-y-1.5">
+//                 {blockers.map((item, idx) => (
+//                   <li key={`${item.code}-${idx}`} className="text-xs text-slate-700 leading-relaxed">
+//                     <span className="font-semibold text-amber-700 mr-1">• {item.label}</span>
+//                     {item.detail}
+//                   </li>
+//                 ))}
+//               </ul>
+//             </div>
+//           )}
+
+//           {followups.length > 0 && (
+//             <div className="rounded-xl bg-white border border-amber-100 p-3">
+//               <div className="text-xs font-bold text-amber-700 mb-2">本轮建议优先追问</div>
+//               <ul className="space-y-1.5">
+//                 {followups.slice(0, 2).map((item, idx) => (
+//                   <li key={`${item.rule_id}-${idx}`} className="text-xs text-slate-700 leading-relaxed">
+//                     <span className="font-semibold text-amber-700 mr-1">[{item.rule_id}]</span>
+//                     {item.question}
+//                   </li>
+//                 ))}
+//               </ul>
+//             </div>
+//           )}
+//         </div>
+//       )}
+//     </div>
+//   );
+// }
 
 
 // function TeacherAssessmentMessageCard({ msg }) {
@@ -420,10 +555,10 @@
 //       .filter((item) => item && item.active !== false);
 //     const interventionPrefix = activeTeacherInterventions.length > 0
 //       ? [
-//           '【教师反向干预要求】（请在本轮回答中优先执行）',
-//           ...activeTeacherInterventions.map((item, idx) => `- 干预${idx + 1}：${item.content}`),
-//           '',
-//         ].join('\n')
+//         '【教师反向干预要求】（请在本轮回答中优先执行）',
+//         ...activeTeacherInterventions.map((item, idx) => `- 干预${idx + 1}：${item.content}`),
+//         '',
+//       ].join('\n')
 //       : '';
 
 //     const assistantMessageId = `assistant-${Date.now()}`;
@@ -489,15 +624,15 @@
 //           }
 
 //           if (event.type === 'final') {
-//             const updatedConversation = applyConversationUpdate(conversationId, (conv) => ({
-//               ...conv,
-//               documentStatus: event.data.document_status || conv.documentStatus,
-//               boundFileName: event.data.bound_file_name || conv.boundFileName,
-//               boundFileUploadedAt: event.data.bound_file_uploaded_at || conv.boundFileUploadedAt,
-//               analysisSnapshot: event.data.analysis_snapshot || conv.analysisSnapshot,
-//               lastMode: activeMode,
-//               threadId: event.data.thread_id || conv.threadId,
-//               messages: conv.messages.map((msg) =>
+//             const updatedConversation = applyConversationUpdate(conversationId, (conv) => {
+//               const nextSnapshot = event.data.analysis_snapshot || conv.analysisSnapshot;
+//               const nextStageFlow = nextSnapshot?.project?.stage_flow || null;
+//               const shouldAppendMilestone =
+//                 activeMode === 'project' &&
+//                 nextStageFlow?.just_upgraded &&
+//                 nextStageFlow?.milestone_message;
+
+//               const nextMessages = conv.messages.map((msg) =>
 //                 msg.id === assistantMessageId
 //                   ? {
 //                     ...msg,
@@ -513,8 +648,27 @@
 //                     },
 //                   }
 //                   : msg
-//               ),
-//             }));
+//               );
+
+//               if (shouldAppendMilestone) {
+//                 nextMessages.push({
+//                   id: `assistant-stage-${Date.now()}`,
+//                   role: 'assistant',
+//                   text: `🎉 ${nextStageFlow.milestone_message}`,
+//                 });
+//               }
+
+//               return {
+//                 ...conv,
+//                 documentStatus: event.data.document_status || conv.documentStatus,
+//                 boundFileName: event.data.bound_file_name || conv.boundFileName,
+//                 boundFileUploadedAt: event.data.bound_file_uploaded_at || conv.boundFileUploadedAt,
+//                 analysisSnapshot: nextSnapshot,
+//                 lastMode: activeMode,
+//                 threadId: event.data.thread_id || conv.threadId,
+//                 messages: nextMessages,
+//               };
+//             });
 
 //             if (updatedConversation) {
 //               await persistConversation(
@@ -611,10 +765,10 @@
 //         }}
 //         disabled={disabled}
 //         className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border ${activeMode === mode.id && !disabled
-//             ? `${mode.bg} ${mode.color} shadow-sm`
-//             : disabled
-//               ? 'text-slate-300 bg-slate-100 border-slate-200 cursor-not-allowed'
-//               : 'text-slate-500 hover:bg-slate-100 border-transparent'
+//           ? `${mode.bg} ${mode.color} shadow-sm`
+//           : disabled
+//             ? 'text-slate-300 bg-slate-100 border-slate-200 cursor-not-allowed'
+//             : 'text-slate-500 hover:bg-slate-100 border-transparent'
 //           }`}
 //       >
 //         {mode.icon}
@@ -677,8 +831,8 @@
 //                 void handleSelectConversation(conversation.id);
 //               }}
 //               className={`w-full text-left px-3 py-3 rounded-xl transition-all border ${activeConversationId === conversation.id
-//                   ? 'bg-brand-50 border-brand-200'
-//                   : 'bg-white border-slate-200 hover:border-brand-200'
+//                 ? 'bg-brand-50 border-brand-200'
+//                 : 'bg-white border-slate-200 hover:border-brand-200'
 //                 }`}
 //             >
 //               <div className="flex items-start justify-between gap-2 mb-1">
@@ -705,7 +859,7 @@
 //                     </span>
 //                   )}
 //                 </div>
-                
+
 //               </div>
 
 //               <div className="text-xs text-slate-400 truncate">
@@ -771,11 +925,10 @@
 //                     </div>
 
 //                     <button
-//                       onClick={() => setSnapshotOpen((v) => !v)}
+//                       onClick={() => setSnapshotOpen(true)}
 //                       className="shrink-0 inline-flex items-center gap-1 text-xs text-amber-700 bg-white border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-50"
 //                     >
 //                       文档分析面板
-//                       {snapshotOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
 //                     </button>
 //                   </div>
 //                 ) : (
@@ -798,15 +951,16 @@
 //               </div>
 //               {(activeConversation.analysisSnapshot?.assessment_review?.status === 'sent' ||
 //                 (activeConversation.analysisSnapshot?.teacher_interventions || []).length > 0) && (
-//                 <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-3">
-//                   <div className="text-sm text-emerald-700 truncate">
-//                     {activeConversation.analysisSnapshot?.assessment_review?.status === 'sent'
-//                       ? '该项目已收到教师复核意见，请及时查看并根据要求修改。'
-//                       : `当前会话已有 ${(activeConversation.analysisSnapshot?.teacher_interventions || []).length} 条教师干预规则正在生效。`}
+//                   <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-3">
+//                     <div className="text-sm text-emerald-700 truncate">
+//                       {activeConversation.analysisSnapshot?.assessment_review?.status === 'sent'
+//                         ? '该项目已收到教师复核意见，请及时查看并根据要求修改。'
+//                         : `当前会话已有 ${(activeConversation.analysisSnapshot?.teacher_interventions || []).length} 条教师干预规则正在生效。`}
+//                     </div>
 //                   </div>
-//                 </div>
-//               )}
-//               <SnapshotOverlay open={snapshotOpen} snapshot={activeConversation.analysisSnapshot} />
+//                 )}
+//               {hasBoundDocument && <ProjectStageBanner stageFlow={getProjectStageFlow(activeConversation)} />}
+//               <SnapshotOverlay open={snapshotOpen} snapshot={activeConversation.analysisSnapshot} onClose={() => setSnapshotOpen(false)} />
 //             </div>
 
 //             <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-slate-50/50">
@@ -850,7 +1004,7 @@
 //                     )}
 //                   </div>
 //                 ) : (
-                  
+
 //                   activeConversation.messages.map((msg, index) => {
 //                     const isUser = msg.role === 'user';
 //                     const isTeacher = msg.role === 'teacher';
@@ -861,13 +1015,12 @@
 //                         className={`flex gap-4 ${isUser ? 'flex-row-reverse' : ''}`}
 //                       >
 //                         <div
-//                           className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 ${
-//                             isUser
+//                           className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 ${isUser
 //                               ? 'bg-brand-100 text-brand-600'
 //                               : isTeacher
 //                                 ? 'bg-emerald-100 text-emerald-700'
 //                                 : 'bg-slate-800 text-white'
-//                           }`}
+//                             }`}
 //                         >
 //                           {isUser ? <User size={18} /> : isTeacher ? <MessageSquare size={18} /> : <Bot size={18} />}
 //                         </div>
@@ -1003,20 +1156,16 @@
 //   );
 // }
 
-
-
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, MessageSquare, Send, FileText, BookOpen, Briefcase, Trophy,
-  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock
+  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize
 } from 'lucide-react';
 import {
   API_BASE_URL, bindConversationFile, createConversation, fetchConversations,
   runAgentStream, syncConversationState
 } from '../../api';
 
-// 【导入拆分出来的组件】确保这三个文件和 FreeChatView.jsx 在同一个目录下
 import SnapshotOverlay from './SnapshotOverlay';
 import ThinkingProcess from './ThinkingProcess';
 import StructuredResponseRenderer from './StructuredResponseRenderer';
@@ -1067,7 +1216,6 @@ function mapConversationFromApi(item) {
   };
 }
 
-
 function sanitizeMessagesForSave(messages = []) {
   return messages.map((msg) => ({
     ...msg,
@@ -1106,7 +1254,6 @@ function buildAttachmentDownloadUrl(file) {
   if (file.download_url?.startsWith('http')) return file.download_url;
   return `${API_BASE_URL.replace(/\/api\/v1$/, '')}${file.download_url || ''}`;
 }
-
 // --- 工具函数区结束 ---
 
 const modes = [
@@ -1144,7 +1291,6 @@ function StageChip({ label, status }) {
 
 function ProjectStageBanner({ stageFlow }) {
   const [expanded, setExpanded] = useState(false);
-
   if (!stageFlow) return null;
 
   const stages = Object.values(stageFlow.stages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
@@ -1257,7 +1403,6 @@ function ProjectStageBanner({ stageFlow }) {
   );
 }
 
-
 function TeacherAssessmentMessageCard({ msg }) {
   const report = msg?.report || {};
   const items = report.rubric_table || [];
@@ -1330,6 +1475,7 @@ export default function FreeChatView({ currentUser }) {
   const [activeConversationId, setActiveConversationId] = useState(null);
 
   const [input, setInput] = useState('');
+  const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [activeMode, setActiveMode] = useState('learning');
 
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -1396,7 +1542,6 @@ export default function FreeChatView({ currentUser }) {
         setLoadingConversations(false);
         return;
       }
-
       try {
         const data = await fetchConversations(currentUser.id);
         const mapped = data.map(mapConversationFromApi);
@@ -1411,7 +1556,6 @@ export default function FreeChatView({ currentUser }) {
         setLoadingConversations(false);
       }
     }
-
     loadConversationList();
   }, [currentUser?.id]);
 
@@ -1427,7 +1571,6 @@ export default function FreeChatView({ currentUser }) {
 
   const ensureConversation = async () => {
     if (activeConversationId) return activeConversationId;
-
     setCreatingConversation(true);
     try {
       const created = await createConversation(currentUser.id, '新对话');
@@ -1444,7 +1587,6 @@ export default function FreeChatView({ currentUser }) {
 
   const handleNewConversation = async () => {
     if (!currentUser?.id) return;
-
     setCreatingConversation(true);
     try {
       const created = await createConversation(currentUser.id, '新对话');
@@ -1463,13 +1605,7 @@ export default function FreeChatView({ currentUser }) {
     }
   };
 
-  const persistConversation = async (
-    conversationId,
-    messages,
-    analysisSnapshot,
-    title,
-    lastMode
-  ) => {
+  const persistConversation = async (conversationId, messages, analysisSnapshot, title, lastMode) => {
     try {
       await syncConversationState(
         conversationId,
@@ -1592,7 +1728,7 @@ export default function FreeChatView({ currentUser }) {
     };
 
     const nextTitle =
-      currentConv && currentConv.messages.length > 0
+      currentConv && currentConv.title && currentConv.title !== '新对话'
         ? currentConv.title
         : deriveConversationTitle(textToProcess);
 
@@ -1621,7 +1757,6 @@ export default function FreeChatView({ currentUser }) {
         interventionPrefix
           ? `${interventionPrefix}\n【学生本轮真实问题】\n${userMessage.text}`
           : userMessage.text,
-        // userMessage.text,
         activeMode,
         currentConv?.threadId || conversationId,
         [],
@@ -1874,7 +2009,6 @@ export default function FreeChatView({ currentUser }) {
                 {conversation.boundFileName
                   ? conversation.boundFileName
                   : conversation.messages.length > 0
-                    // ? conversation.messages[conversation.messages.length - 1]?.text || '暂无文本'
                     ? getMessagePreview(conversation.messages[conversation.messages.length - 1])
                     : '未绑定文档'}
               </div>
@@ -1899,26 +2033,6 @@ export default function FreeChatView({ currentUser }) {
         ) : (
           <>
             <div className="relative shrink-0 border-b border-slate-200 bg-white">
-              <div className="px-5 py-3 border-b border-slate-100">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[11px] font-bold text-slate-400 mb-0.5">当前对话</div>
-                    <div className="text-lg font-bold text-slate-800 truncate">
-                      {activeConversation.title}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={bindingFile}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:border-brand-300 hover:text-brand-600 text-slate-600 transition-colors disabled:opacity-60 shrink-0"
-                  >
-                    {bindingFile ? <Loader2 size={16} className="animate-spin" /> : <RefreshCcw size={16} />}
-                    {activeConversation.documentStatus === 'bound' ? '更新文档' : '绑定文档'}
-                  </button>
-                </div>
-              </div>
-
               <div className="px-5 py-2 bg-red-50 border-b border-red-100">
                 {hasBoundDocument ? (
                   <div className="flex items-center justify-between gap-3">
@@ -1933,10 +2047,11 @@ export default function FreeChatView({ currentUser }) {
                     </div>
 
                     <button
-                      onClick={() => setSnapshotOpen(true)}
+                      onClick={() => setSnapshotOpen((v) => !v)}
                       className="shrink-0 inline-flex items-center gap-1 text-xs text-amber-700 bg-white border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-50"
                     >
                       文档分析面板
+                      {snapshotOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
                   </div>
                 ) : (
@@ -1968,11 +2083,12 @@ export default function FreeChatView({ currentUser }) {
                   </div>
                 )}
               {hasBoundDocument && <ProjectStageBanner stageFlow={getProjectStageFlow(activeConversation)} />}
+              
               <SnapshotOverlay open={snapshotOpen} snapshot={activeConversation.analysisSnapshot} onClose={() => setSnapshotOpen(false)} />
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-slate-50/50">
-              <div className="max-w-4xl mx-auto space-y-6">
+              <div className="w-full space-y-6">
                 {activeConversation.messages.length === 0 ? (
                   <div className="min-h-full flex flex-col items-center justify-center text-slate-700 space-y-8 px-4">
                     <div className="flex flex-col items-center space-y-4 text-center">
@@ -1992,7 +2108,7 @@ export default function FreeChatView({ currentUser }) {
                     </div>
 
                     {!hasBoundDocument && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                         {suggestedPrompts.map((prompt, index) => (
                           <button
                             key={index}
@@ -2016,7 +2132,6 @@ export default function FreeChatView({ currentUser }) {
                   activeConversation.messages.map((msg, index) => {
                     const isUser = msg.role === 'user';
                     const isTeacher = msg.role === 'teacher';
-                    const isAssistant = !isUser && !isTeacher;
                     return (
                       <div
                         key={msg.id || index}
@@ -2041,11 +2156,11 @@ export default function FreeChatView({ currentUser }) {
                             </div>
                           ) : isTeacher ? (
                             msg.kind === 'assessment_report' ? (
-                              <div className="w-full max-w-3xl">
+                              <div className="w-full">
                                 <TeacherAssessmentMessageCard msg={msg} />
                               </div>
                             ) : (
-                              <div className="bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-2xl rounded-tl-sm shadow-sm w-full max-w-3xl">
+                              <div className="bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-2xl rounded-tl-sm shadow-sm w-full">
                                 {msg.quote && (
                                   <div className="mb-3 bg-white/80 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-800">
                                     <div className="font-bold mb-1">引用批注</div>
@@ -2104,15 +2219,27 @@ export default function FreeChatView({ currentUser }) {
             </div>
 
             <div className="shrink-0 bg-white border-t border-slate-200 p-4">
-              <div className="max-w-4xl mx-auto">
+              <div className="w-full">
                 <div className="flex items-center justify-between mb-3 gap-4 flex-wrap">
-                  <div className="flex gap-3 flex-wrap">{modes.map(renderModeButton)}</div>
-
-                  {!hasBoundDocument && (
-                    <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
-                      当前仅学习模式可用
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex gap-2 flex-wrap">
+                      {modes.map(renderModeButton)}
                     </div>
-                  )}
+                    {!hasBoundDocument && (
+                      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full whitespace-nowrap">
+                        当前仅学习模式可用
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={bindingFile}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white hover:border-brand-300 hover:text-brand-600 text-slate-600 text-sm transition-colors disabled:opacity-60 shrink-0 ml-auto"
+                  >
+                    {bindingFile ? <Loader2 size={16} className="animate-spin" /> : <RefreshCcw size={16} />}
+                    更新文档
+                  </button>
                 </div>
 
                 <div className="relative flex items-end bg-white border border-slate-300 focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 rounded-xl shadow-sm transition-all overflow-hidden">
@@ -2136,20 +2263,29 @@ export default function FreeChatView({ currentUser }) {
                     placeholder={
                       hasBoundDocument
                         ? '在此继续基于当前绑定文档提问，按 Enter 发送（Shift+Enter 换行）...'
-                        : '先用学习模式提问，或点击左上 / 顶部按钮绑定商业计划书文档...'
+                        : '先用学习模式提问，或点击左侧回形针绑定商业计划书文档...'
                     }
-                    className="flex-1 max-h-40 p-3 bg-transparent resize-none focus:outline-none text-slate-700 text-sm"
-                    rows={1}
+                    className={`flex-1 p-3 bg-transparent resize-none focus:outline-none text-slate-700 text-sm transition-all duration-200 ${isInputExpanded ? 'h-64' : 'max-h-40'}`}
+                    rows={isInputExpanded ? 10 : 1}
                     style={{ minHeight: '52px' }}
                   />
 
-                  <button
-                    onClick={() => handleSubmit()}
-                    disabled={loadingReply || !input.trim()}
-                    className="m-2 p-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:hover:bg-brand-600 transition-colors"
-                  >
-                    {loadingReply ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-                  </button>
+                  <div className="flex items-center p-2 gap-1">
+                    <button
+                      onClick={() => setIsInputExpanded(!isInputExpanded)}
+                      className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-colors"
+                      title={isInputExpanded ? '收起输入框' : '展开输入框 (支持大篇幅长文本)'}
+                    >
+                      {isInputExpanded ? <Minimize size={18} /> : <Maximize size={18} />}
+                    </button>
+                    <button
+                      onClick={() => handleSubmit()}
+                      disabled={loadingReply || !input.trim()}
+                      className="p-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:hover:bg-brand-600 transition-colors"
+                    >
+                      {loadingReply ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                    </button>
+                  </div>
                 </div>
 
                 <p className="text-center text-xs text-slate-400 mt-2">
