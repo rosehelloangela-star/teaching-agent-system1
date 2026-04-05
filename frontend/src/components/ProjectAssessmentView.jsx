@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Search, Loader2, Send, Quote, Highlighter, CheckCircle2, Paperclip,
   ChevronLeft, ChevronRight, MessageSquareText, ClipboardCheck, Download, Sparkles,
-  FileText, ChevronDown, ChevronUp, Unlock
+  FileText, ChevronDown, ChevronUp, FastForward
 } from 'lucide-react';
 import {
   API_BASE_URL,
@@ -219,7 +219,10 @@ export default function ProjectAssessmentView({ currentUser }) {
   const [loadingAssessment, setLoadingAssessment] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [sendingAssessment, setSendingAssessment] = useState(false);
+  
+  // 阶段强制调控状态
   const [isForcingStage, setIsForcingStage] = useState(false);
+  const [forceStageTarget, setForceStageTarget] = useState('2');
 
   const [assessmentResult, setAssessmentResult] = useState(null);
   const [editedScores, setEditedScores] = useState({});
@@ -242,12 +245,9 @@ export default function ProjectAssessmentView({ currentUser }) {
     [detail?.analysis_snapshot]
   );
 
-  // -- 强制进阶相关状态判定 --
   const projectStageFlow = parsedSnapshot?.project?.stage_flow || null;
-  const currentStageIndex = projectStageFlow ? parseInt(projectStageFlow.current_stage_index || 1, 10) : 1;
   const overallStatus = projectStageFlow?.overall_status;
-  // 假定一共3个阶段，当前尚未完成且处于小于3的阶段时，允许强制解锁下一阶段
-  const canForceNextStage = projectStageFlow && overallStatus !== 'completed' && currentStageIndex < 3;
+  const canForceAdvance = projectStageFlow && overallStatus !== 'completed';
 
   useEffect(() => {
     async function loadList() {
@@ -396,38 +396,36 @@ export default function ProjectAssessmentView({ currentUser }) {
     await persistFullConversation(nextMessages, parsedSnapshot);
   };
 
-  // --- 新增：强制进入下一阶段逻辑 ---
-  const handleForceNextStage = async () => {
+  // --- 升级版：强制流转目标阶段选择 ---
+  const handleForceAdvance = async () => {
     if (!detail?.id) return;
-    if (!window.confirm(`确定要强制将该项目推进到第 ${currentStageIndex + 1} 阶段吗？学生在下一次回复时将直接进入新阶段。`)) return;
+    const target = parseInt(forceStageTarget, 10);
+    const targetText = target === 4 ? '通关' : `第 ${target} 阶段`;
+    if (!window.confirm(`确定要强制将该项目调控至【${targetText}】吗？学生在下一次回复时将直接生效。`)) return;
 
     setIsForcingStage(true);
     try {
-      // 深度拷贝以免直接修改原对象
       const nextSnapshot = JSON.parse(JSON.stringify(parsedSnapshot));
       if (!nextSnapshot.project) nextSnapshot.project = {};
       if (!nextSnapshot.project.stage_flow) nextSnapshot.project.stage_flow = {};
 
-      // 强行在分析快照中设定下一次启动时的强制进阶目标
-      nextSnapshot.project.stage_flow.next_stage_index = currentStageIndex + 1;
+      nextSnapshot.project.stage_flow.next_stage_index = target;
 
-      // 顺便给学生发送一条系统提示，告知其已被教师强制解锁
       const teacherMessage = {
         id: `teacher-force-stage-${Date.now()}`,
         role: 'teacher',
         kind: 'system_notification',
         mode: 'teacher_review',
-        text: `👩‍🏫 老师已为你强制解锁了第 ${currentStageIndex + 1} 阶段。请在下方输入框继续作答，系统将自动进入新阶段的评估。`,
+        text: `👩‍🏫 老师已将项目流转强制调控至：${targetText}。系统将在下一次交互时自动进入该状态。`,
         unreadByStudent: true,
         createdAt: new Date().toISOString(),
       };
 
       const nextMessages = [...parsedMessages, teacherMessage];
-
       await persistFullConversation(nextMessages, nextSnapshot);
-      alert(`已成功强制解锁第 ${currentStageIndex + 1} 阶段！`);
+      alert(`已成功下发指令！学生项目即将切换至 ${targetText}。`);
     } catch (e) {
-      alert('强制解锁失败：' + (e?.response?.data?.detail || e.message));
+      alert('强制调控失败：' + (e?.response?.data?.detail || e.message));
     } finally {
       setIsForcingStage(false);
     }
@@ -543,17 +541,28 @@ export default function ProjectAssessmentView({ currentUser }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         
-        {/* 新增的强制解锁按钮 */}
-        {canForceNextStage && (
-          <button
-            onClick={handleForceNextStage}
-            disabled={isForcingStage}
-            className="border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50 whitespace-nowrap"
-            title={`当前为第 ${currentStageIndex} 阶段，点击可强制越过门槛条件进入下一阶段`}
-          >
-            {isForcingStage ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
-            强制解锁下一阶段
-          </button>
+        {/* 新增：带有下拉框的强制调控组 */}
+        {canForceAdvance && (
+          <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 rounded-lg p-1 shrink-0">
+            <FastForward size={14} className="text-amber-600 ml-1" />
+            <select
+              value={forceStageTarget}
+              onChange={(e) => setForceStageTarget(e.target.value)}
+              className="bg-transparent text-amber-800 text-sm font-medium outline-none px-1 cursor-pointer"
+            >
+              <option value="2">拉入第二阶段</option>
+              <option value="3">拉入第三阶段</option>
+              <option value="4">标记为通关</option>
+            </select>
+            <button
+              onClick={handleForceAdvance}
+              disabled={isForcingStage}
+              className="bg-amber-200 hover:bg-amber-300 text-amber-800 px-3 py-1.5 rounded-md text-sm font-bold transition-colors disabled:opacity-50"
+              title="学生在下一次交互时系统将直接进入所选阶段"
+            >
+              {isForcingStage ? <Loader2 size={14} className="animate-spin" /> : '执行调控'}
+            </button>
+          </div>
         )}
 
         <button
@@ -975,7 +984,7 @@ export default function ProjectAssessmentView({ currentUser }) {
 // import {
 //   Search, Loader2, Send, Quote, Highlighter, CheckCircle2, Paperclip,
 //   ChevronLeft, ChevronRight, MessageSquareText, ClipboardCheck, Download, Sparkles,
-//   FileText, ChevronDown, ChevronUp,
+//   FileText, ChevronDown, ChevronUp, Unlock
 // } from 'lucide-react';
 // import {
 //   API_BASE_URL,
@@ -1192,6 +1201,8 @@ export default function ProjectAssessmentView({ currentUser }) {
 //   const [loadingAssessment, setLoadingAssessment] = useState(false);
 //   const [sendingReply, setSendingReply] = useState(false);
 //   const [sendingAssessment, setSendingAssessment] = useState(false);
+//   const [isForcingStage, setIsForcingStage] = useState(false);
+
 //   const [assessmentResult, setAssessmentResult] = useState(null);
 //   const [editedScores, setEditedScores] = useState({});
 //   const [reviewNotes, setReviewNotes] = useState('');
@@ -1212,6 +1223,13 @@ export default function ProjectAssessmentView({ currentUser }) {
 //     () => safeParseJSON(detail?.analysis_snapshot, {}),
 //     [detail?.analysis_snapshot]
 //   );
+
+//   // -- 强制进阶相关状态判定 --
+//   const projectStageFlow = parsedSnapshot?.project?.stage_flow || null;
+//   const currentStageIndex = projectStageFlow ? parseInt(projectStageFlow.current_stage_index || 1, 10) : 1;
+//   const overallStatus = projectStageFlow?.overall_status;
+//   // 假定一共3个阶段，当前尚未完成且处于小于3的阶段时，允许强制解锁下一阶段
+//   const canForceNextStage = projectStageFlow && overallStatus !== 'completed' && currentStageIndex < 3;
 
 //   useEffect(() => {
 //     async function loadList() {
@@ -1360,6 +1378,43 @@ export default function ProjectAssessmentView({ currentUser }) {
 //     await persistFullConversation(nextMessages, parsedSnapshot);
 //   };
 
+//   // --- 新增：强制进入下一阶段逻辑 ---
+//   const handleForceNextStage = async () => {
+//     if (!detail?.id) return;
+//     if (!window.confirm(`确定要强制将该项目推进到第 ${currentStageIndex + 1} 阶段吗？学生在下一次回复时将直接进入新阶段。`)) return;
+
+//     setIsForcingStage(true);
+//     try {
+//       // 深度拷贝以免直接修改原对象
+//       const nextSnapshot = JSON.parse(JSON.stringify(parsedSnapshot));
+//       if (!nextSnapshot.project) nextSnapshot.project = {};
+//       if (!nextSnapshot.project.stage_flow) nextSnapshot.project.stage_flow = {};
+
+//       // 强行在分析快照中设定下一次启动时的强制进阶目标
+//       nextSnapshot.project.stage_flow.next_stage_index = currentStageIndex + 1;
+
+//       // 顺便给学生发送一条系统提示，告知其已被教师强制解锁
+//       const teacherMessage = {
+//         id: `teacher-force-stage-${Date.now()}`,
+//         role: 'teacher',
+//         kind: 'system_notification',
+//         mode: 'teacher_review',
+//         text: `👩‍🏫 老师已为你强制解锁了第 ${currentStageIndex + 1} 阶段。请在下方输入框继续作答，系统将自动进入新阶段的评估。`,
+//         unreadByStudent: true,
+//         createdAt: new Date().toISOString(),
+//       };
+
+//       const nextMessages = [...parsedMessages, teacherMessage];
+
+//       await persistFullConversation(nextMessages, nextSnapshot);
+//       alert(`已成功强制解锁第 ${currentStageIndex + 1} 阶段！`);
+//     } catch (e) {
+//       alert('强制解锁失败：' + (e?.response?.data?.detail || e.message));
+//     } finally {
+//       setIsForcingStage(false);
+//     }
+//   };
+
 //   const handleSendReply = async () => {
 //     if (!detail?.id) return;
 //     if (!teacherReply.trim() && !quoteTarget && attachmentFiles.length === 0) return;
@@ -1469,6 +1524,20 @@ export default function ProjectAssessmentView({ currentUser }) {
 //         </div>
 //       </div>
 //       <div className="flex items-center gap-2 shrink-0">
+        
+//         {/* 新增的强制解锁按钮 */}
+//         {canForceNextStage && (
+//           <button
+//             onClick={handleForceNextStage}
+//             disabled={isForcingStage}
+//             className="border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50 whitespace-nowrap"
+//             title={`当前为第 ${currentStageIndex} 阶段，点击可强制越过门槛条件进入下一阶段`}
+//           >
+//             {isForcingStage ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+//             强制解锁下一阶段
+//           </button>
+//         )}
+
 //         <button
 //           onClick={() => setReportPanelOpen((v) => !v)}
 //           className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 p-2 rounded-lg"
@@ -1582,7 +1651,7 @@ export default function ProjectAssessmentView({ currentUser }) {
 //                 </div>
 //               </div>
 //             )}
-//             <SnapshotOverlay open={teacherSnapshotOpen} snapshot={parsedSnapshot} />
+//             <SnapshotOverlay open={teacherSnapshotOpen} snapshot={parsedSnapshot} onClose={() => setTeacherSnapshotOpen(false)} />
 //           </div>
 
 //           <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-4 space-y-6 bg-slate-50/40">

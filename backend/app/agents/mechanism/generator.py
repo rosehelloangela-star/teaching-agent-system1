@@ -1,558 +1,6 @@
 import json
 from typing import Any, Dict, List
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import AIMessage
-
-from app.agents.mechanism.llm_config import get_llm
-from app.core.json_utils import message_content_to_text, parse_pydantic_from_text
-from app.agents.roles import ROLE_CONFIG_REGISTRY
-from app.core.stream_logger import log_and_emit
-
-
-def _truncate_text(text: str, max_chars: int = 6000) -> str:
-    text = (text or "").strip()
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "\n...(文档内容已截断)"
-
-
-def _build_output_contract(role_id: str) -> str:
-    if role_id == "project_coach":
-        return (
-            '{\n'
-            '  "is_refused": false,\n'
-            '  "reply": "带有 Markdown 排版的对话回复文本",\n'
-            '  "logic_flaw": "缺陷总结（严禁留空）",\n'
-            '  "evidence_gap": "缺少的具体证据（严禁留空）",\n'
-            '  "only_one_task": "具体修复任务（严禁留空）",\n'
-            '  "acceptance_criteria": "验收标准"\n'
-            '}'
-        )
-    if role_id == "student_tutor":
-        return '{\n  "is_refused": false,\n  "reply": "在此处输出带有丰富 Markdown 排版的对话文本。"\n}'
-    if role_id == "competition_advisor":
-        return (
-            '{\n'
-            '  "is_refused": false,\n'
-            '  "reply": "带有 Markdown 排版的竞赛辅导回复文本",\n'
-            '  "rubric_items": [\n'
-            '    {\n'
-            '      "dimension_id": "problem_definition",\n'
-            '      "estimated_score": 2.0,\n'
-            '      "score_reason": "评分解释",\n'
-            '      "missing_evidence": ["必须写明具体缺什么数据或图表"],\n'
-            '      "minimal_fix_24h": "必须给出24h具体行动",\n'
-            '      "minimal_fix_72h": "必须给出72h具体行动"\n'
-            '    }\n'
-            '  ],\n'
-            '  "top_tasks": [\n'
-            '    {\n'
-            '      "task_desc": "任务描述",\n'
-            '      "roi_reason": "高性价比理由",\n'
-            '      "template_example": "模板示例",\n'
-            '      "timeframe": "24h或72h"\n'
-            '    }\n'
-            '  ],\n'
-            '  "quick_questions": ["继续追问1", "继续追问2"]\n'
-            '}'
-        )
-    if role_id == "instructor_assistant":
-        return '{\n  "knowledge_coverage": "知识覆盖统计",\n  "hypergraph_triggers": "规则触发占比",\n  "rubric_distribution": "Rubric分布",\n  "risk_list": [\n    {\n      "project_name": "项目名",\n      "risk_score": "高/中/低",\n      "primary_issues": ["问题1", "问题2"]\n    }\n  ],\n  "teaching_suggestions": "教学干预建议"\n}'
-    if role_id == "assessment_assistant":
-        return '{\n  "rubric_table": [\n    {\n      "dimension": "评分维度",\n      "score": 1,\n      "evidence_trace": "证据片段"\n    }\n  ],\n  "revision_suggestions": "修订建议",\n  "feedback_templates": "反馈模板"\n}'
-    return "{}"
-
-
-def _score_to_risk(score: float) -> str:
-    if score <= 2:
-        return "高"
-    if score < 3.5:
-        return "中"
-    return "低"
-
-
-def _build_competition_rubric_markdown(items: List[Dict[str, Any]]) -> str:
-    header = "| 维度 | 权重 | 预估分 | 核心缺口 |\n|---|---:|---:|---|"
-    rows = []
-    for item in items:
-        gap = "；".join(item.get("missing_evidence", [])[:2]) or "证据基本齐备"
-        rows.append(
-            f"| {item.get('dimension_name')} | {item.get('weight')}% | {item.get('estimated_score'):.1f}/5 | {gap} |"
-        )
-    return "\n".join([header, *rows])
-
-
-def _build_competition_deduction_text(items: List[Dict[str, Any]]) -> str:
-    weakest = sorted(items, key=lambda x: (x.get("estimated_score", 5), -x.get("weight", 0)))[:4]
-    parts = []
-    for item in weakest:
-        gaps = item.get("missing_evidence", [])[:2]
-        gap_text = "；".join(gaps) if gaps else "当前证据不足以支撑高分"
-        parts.append(f"- {item.get('dimension_name')}（{item.get('weight')}%）：{gap_text}")
-    return "\n".join(parts)
-
-
-def _validate_competition_output(parsed_dict: Dict[str, Any], template_ctx: Dict[str, Any]) -> None:
-    """【防崩溃核心层】接管所有大模型的偷懒行为，进行代码级自动填补"""
-    expected_ids = [item["dimension_id"] for item in template_ctx.get("rubric_items", [])]
-    parsed_items = parsed_dict.get("rubric_items", []) or []
-    
-    # 获取大模型实际生成的维度ID
-    parsed_ids = [item.get("dimension_id") for item in parsed_items if item.get("dimension_id")]
-
-    # 1. 自动填坑：大模型漏掉的维度，我们代码自动以中庸分数补齐
-    missing_ids = set(expected_ids) - set(parsed_ids)
-    if missing_ids:
-        for m_id in missing_ids:
-            parsed_items.append({
-                "dimension_id": m_id,
-                "estimated_score": 3.0, 
-                "score_reason": "系统缺省评分（基于现有文本无法给出精确判定）",
-                "missing_evidence": ["缺乏该维度的核心论证材料"],
-                "minimal_fix_24h": "重新审视该维度要求并补充基础素材",
-                "minimal_fix_72h": "针对性地开展该维度的闭环论证"
-            })
-
-    # 2. 去重兜底：大模型生成的重复维度，只保留第一个
-    seen = set()
-    unique_items = []
-    for item in parsed_items:
-        dim_id = item.get("dimension_id")
-        if dim_id and dim_id not in seen:
-            seen.add(dim_id)
-            unique_items.append(item)
-    parsed_dict["rubric_items"] = unique_items
-
-    # 3. 强力纠偏：分数低却不给建议的（这就是你之前报错的原因），自动强插建议
-    for item in parsed_dict.get("rubric_items", []):
-        score = float(item.get("estimated_score", 3.0))
-        if score <= 2:
-            if not item.get("missing_evidence") or len(item.get("missing_evidence")) < 1:
-                item["missing_evidence"] = ["缺少支撑该维度的核心客观证据与数据"]
-            if not str(item.get("minimal_fix_24h", "")).strip():
-                item["minimal_fix_24h"] = "梳理现有BP，补充最基础的逻辑说明"
-            if not str(item.get("minimal_fix_72h", "")).strip():
-                item["minimal_fix_72h"] = "进行专项调研或测试，彻底补齐证据缺口"
-
-
-def _enrich_competition_content(parsed_dict: Dict[str, Any], template_ctx: Dict[str, Any]) -> Dict[str, Any]:
-    parsed_items = {item["dimension_id"]: item for item in parsed_dict.get("rubric_items", []) or []}
-    merged_items: List[Dict[str, Any]] = []
-    for template_item in template_ctx.get("rubric_items", []):
-        item = parsed_items.get(template_item["dimension_id"], {}) # 安全获取
-        score = round(float(item.get("estimated_score", 3.0)), 1)
-        merged_items.append(
-            {
-                "dimension_id": template_item["dimension_id"],
-                "dimension_name": template_item["dimension_name"],
-                "category": template_item["category"],
-                "weight": template_item["weight"],
-                "estimated_score": score,
-                "score_reason": item.get("score_reason", "缺省评价"),
-                "required_evidence": template_item.get("required_evidence", []),
-                "missing_evidence": item.get("missing_evidence", []) or [],
-                "common_mistakes": template_item.get("common_mistakes", []),
-                "minimal_fix_24h": item.get("minimal_fix_24h", ""),
-                "minimal_fix_72h": item.get("minimal_fix_72h", ""),
-                "risk_level": _score_to_risk(score),
-                "low_score_guardrail_pass": True, # 经过了前面的 validate，这里必然是 True，不再依赖复杂判断
-            }
-        )
-    total_weight = sum(item["weight"] for item in merged_items) or 100
-    weighted_score_pct = round(sum(item["estimated_score"] / 5 * item["weight"] for item in merged_items), 1)
-    average_score = round(sum(item["estimated_score"] for item in merged_items) / len(merged_items), 2) if merged_items else 0.0
-
-    strongest = sorted(merged_items, key=lambda x: (x["estimated_score"], x["weight"]), reverse=True)[:3]
-    weakest = sorted(merged_items, key=lambda x: (x["estimated_score"], -x["weight"]))[:3]
-    high_weight_dims = sorted(merged_items, key=lambda x: x["weight"], reverse=True)[:4]
-    high_risk_dims = [item for item in merged_items if item["risk_level"] == "高"][:4]
-
-    panel_charts = {
-        "radar": [
-            {
-                "dimension": item["dimension_name"],
-                "score": item["estimated_score"],
-                "fullMark": 5,
-                "weight": item["weight"],
-            }
-            for item in merged_items
-        ],
-        "weight_compare": [
-            {
-                "dimension": item["dimension_name"],
-                "weight": item["weight"],
-                "category": item["category"],
-            }
-            for item in merged_items
-        ],
-        "score_weight_matrix": [
-            {
-                "dimension": item["dimension_name"],
-                "score": item["estimated_score"],
-                "weight": item["weight"],
-                "risk": item["risk_level"],
-            }
-            for item in merged_items
-        ],
-    }
-
-    score_summary = {
-        "weighted_score_pct": weighted_score_pct,
-        "weighted_score_text": f"{weighted_score_pct}/100",
-        "average_score": average_score,
-        "verdict": "可以路演，但高权重短板必须优先修复" if weighted_score_pct >= 70 else "当前不宜直接上场，需先补齐高权重证据缺口",
-        "strongest_dimensions": [
-            {
-                "dimension_id": item["dimension_id"],
-                "dimension_name": item["dimension_name"],
-                "score": item["estimated_score"],
-                "weight": item["weight"],
-            }
-            for item in strongest
-        ],
-        "weakest_dimensions": [
-            {
-                "dimension_id": item["dimension_id"],
-                "dimension_name": item["dimension_name"],
-                "score": item["estimated_score"],
-                "weight": item["weight"],
-            }
-            for item in weakest
-        ],
-        "high_weight_dimensions": [
-            {
-                "dimension_id": item["dimension_id"],
-                "dimension_name": item["dimension_name"],
-                "weight": item["weight"],
-            }
-            for item in high_weight_dims
-        ],
-        "high_risk_dimensions": [
-            {
-                "dimension_id": item["dimension_id"],
-                "dimension_name": item["dimension_name"],
-                "score": item["estimated_score"],
-                "weight": item["weight"],
-            }
-            for item in high_risk_dims
-        ],
-    }
-
-    competition_meta = {
-        "template_id": template_ctx.get("template_id"),
-        "template_name": template_ctx.get("template_name"),
-        "short_name": template_ctx.get("short_name"),
-        "matched_alias": template_ctx.get("matched_alias"),
-        "recognition_basis": template_ctx.get("recognition_basis"),
-        "focus_hint": template_ctx.get("focus_hint"),
-        "expected_shift": template_ctx.get("expected_shift"),
-        "total_dimensions": len(merged_items),
-        "total_weight": total_weight,
-        "exclusive_dimensions": template_ctx.get("exclusive_dimensions", []),
-    }
-
-    enriched = dict(parsed_dict)
-    enriched["competition_meta"] = competition_meta
-    enriched["rubric_items"] = merged_items
-    enriched["score_summary"] = score_summary
-    enriched["panel_charts"] = panel_charts
-    enriched["rubric_scores"] = _build_competition_rubric_markdown(merged_items)
-    enriched["deduction_evidence"] = _build_competition_deduction_text(merged_items)
-    return enriched
-
-
-def _build_competition_template_digest(template_ctx: Dict[str, Any]) -> str:
-    if not template_ctx:
-        return "{}"
-    digest = {
-        "template_id": template_ctx.get("template_id"),
-        "template_name": template_ctx.get("template_name"),
-        "short_name": template_ctx.get("short_name"),
-        "focus_hint": template_ctx.get("focus_hint"),
-        "expected_shift": template_ctx.get("expected_shift"),
-        "exclusive_dimensions": template_ctx.get("exclusive_dimensions", []),
-        "rubric_items": [
-            {
-                "dimension_id": item.get("dimension_id"),
-                "dimension_name": item.get("dimension_name"),
-                "weight": item.get("weight"),
-                "category": item.get("category"),
-            }
-            for item in template_ctx.get("rubric_items", [])
-        ],
-    }
-    return json.dumps(digest, ensure_ascii=False, separators=(",", ":"))
-
-
-def _clean_json_fence(raw_text: str) -> str:
-    raw_text = (raw_text or "").strip()
-    if raw_text.startswith("```json"):
-        raw_text = raw_text[7:]
-    elif raw_text.startswith("```"):
-        raw_text = raw_text[3:]
-    if raw_text.endswith("```"):
-        raw_text = raw_text[:-3]
-    return raw_text.strip()
-
-
-def _invoke_generator(chain, payload: Dict[str, Any], schema, role_id: str, competition_context: Dict[str, Any]):
-    response = chain.invoke(payload)
-    raw_text = _clean_json_fence(message_content_to_text(response))
-
-    print(f"\n========== [Generator Debug] ==========\n大模型原始输出内容：\n[{raw_text[:800]}...]\n=======================================\n", flush=True)
-
-    if not raw_text:
-        raise ValueError("大模型返回了完全空白的字符串！可能是触发了API平台安全护栏，或超出了输出限制。")
-
-    parsed_model = parse_pydantic_from_text(raw_text, schema)
-    final_content = parsed_model.model_dump()
-
-    if role_id == "competition_advisor":
-        if not competition_context:
-            raise ValueError("竞赛模式缺少模板上下文，无法生成稳定输出。")
-        # 这里会调用我们刚刚优化的防崩溃 _validate
-        _validate_competition_output(final_content, competition_context)
-        final_content = _enrich_competition_content(final_content, competition_context)
-    return final_content
-
-
-def _build_competition_prompt(compact: bool = False):
-    if not compact:
-        system_text = (
-            "你是创新创业教学智能体中的竞赛顾问生成器，也是一个非常严格但专业的路演评委。\n"
-            "你必须且只能返回一个合法 JSON 对象。不要输出任何解释、前后缀或代码块。\n"
-            "reply 用 Markdown；其余字段必须严格按输出合同。\n"
-            "\n【🔥 核心纪律（严禁偷懒）】\n"
-            "1. 你必须完整遍历模板中的 *所有* rubric_items，一个都不能少！\n"
-            "2. 当 estimated_score <= 2 时，missing_evidence 数组必须写出至少1条具体的缺失证据，minimal_fix 绝不能留空！\n"
-            "3. top_tasks 最多3条，优先高权重且低分维度。\n"
-            "4. quick_questions 最多3条，必须像评委现场追问。\n"
-            "\n【reply 必须包含的 Markdown 模块】\n"
-            "### 🏁 赛事口径识别\n"
-            "### 📊 总体预判\n"
-            "### 🎯 高权重扣分项\n"
-            "### 🧾 证据缺口清单\n"
-            "### ⏱ 24h / 72h 冲刺建议\n"
-            "### ❓ 路演追问预演\n"
-            "\n【赛事模板摘要】\n{template_digest}\n"
-            "\n输出格式参考：\n{output_contract}"
-        )
-        user_text = (
-            "用户当前指令：\n{user_input}\n\n"
-            "诊断摘要：\n{diagnosis}\n\n"
-            "任务规划：\n{tasks}\n\n"
-            "文档节选：\n{document_excerpt}\n\n"
-            "上次校验错误：\n{errors}\n\n"
-            "⚠️ 最后警告：请务必确保 JSON 字段完整，不遗漏任何 rubric_item 和 missing_evidence！"
-        )
-    else:
-        # 在重试模式下，去掉繁琐的规则，降低长文本的注意力分散
-        system_text = (
-            "你是冷酷竞赛评委。必须且只能返回合法 JSON。\n"
-            "目标：基于赛事模板摘要，对全部维度逐项打分并给出精炼修复建议。\n"
-            "⚠️ 硬约束：\n"
-            "- rubric_items 必须完整覆盖模板中的全部 dimension_id！\n"
-            "- estimated_score <=2 时，必须给 missing_evidence、minimal_fix_24h、minimal_fix_72h，严禁留空！\n"
-            "- reply 只写简洁 Markdown 总结。\n"
-            "赛事模板摘要：{template_digest}\n"
-            "输出格式：{output_contract}"
-        )
-        user_text = (
-            "当前指令：{user_input}\n"
-            "诊断：{diagnosis}\n"
-            "任务：{tasks}\n"
-            "文档：{document_excerpt}\n\n"
-            "⚠️ 不要偷懒，请务必保证 JSON 结构完整性！"
-        )
-    return ChatPromptTemplate.from_messages([("system", system_text), ("user", user_text)])
-
-
-def generator_node(state: dict) -> dict:
-    role_id = state.get("selected_role", "student_tutor")
-    role_config = ROLE_CONFIG_REGISTRY.get(role_id, {})
-    schema = role_config.get("output_schema")
-    if state.get("llm_unavailable"):
-        log_and_emit(state, "generator", "检测到模型诊断阶段不可用，中断生成。", level="error")
-        raise RuntimeError("大语言模型当前不可用，请检查网络或配置。")
-
-    diagnosis_text = state.get("critic_diagnosis", {}).get("raw_analysis", "")
-    tasks_text = json.dumps(state.get("planned_tasks", []), ensure_ascii=False, indent=2)
-    errors = state.get("validation_errors") or "无"
-    user_input = state.get("user_input", "")
-    bound_document_text = state.get("bound_document_text", "")
-    competition_context = state.get("competition_context", {})
-
-    output_contract = _build_output_contract(role_id)
-
-    if role_id == "competition_advisor":
-        template_digest = _build_competition_template_digest(competition_context)
-        # 【减小上下文范围】缩短长文档截断，降低 token 压力，显著降低超时概率
-        document_excerpt = _truncate_text(bound_document_text, max_chars=1200) 
-        log_and_emit(state, "generator", "正在调用模型合成最终反馈...")
-
-        normal_prompt = _build_competition_prompt(compact=False)
-        normal_chain = normal_prompt | get_llm(temperature=0.15, max_tokens=1800)
-        normal_payload = {
-            "output_contract": output_contract,
-            "template_digest": template_digest,
-            "user_input": user_input,
-            "diagnosis": diagnosis_text,
-            "tasks": tasks_text,
-            "document_excerpt": document_excerpt,
-            "errors": errors,
-        }
-
-        try:
-            final_content = _invoke_generator(normal_chain, normal_payload, schema, role_id, competition_context)
-            log_and_emit(state, "generator", "模型返回且解析成功。")
-            return {
-                "generated_content": final_content,
-                "attempt_count": state.get("attempt_count", 0) + 1,
-                "messages": [AIMessage(content=json.dumps(final_content, ensure_ascii=False, indent=2))],
-            }
-        except Exception as e:
-            err_text = str(e)
-            if "timed out" not in err_text.lower() and "timeout" not in err_text.lower():
-                log_and_emit(state, "generator", f"模型首轮生成失败：{e}", level="warning")
-            else:
-                log_and_emit(state, "generator", "首轮生成超时，切换精简上下文重试。", level="warning")
-
-            compact_prompt = _build_competition_prompt(compact=True)
-            # 【极致缩减】重试时使用极小上下文，确保秒级返回，彻底告别二次超时
-            compact_chain = compact_prompt | get_llm(temperature=0.1, max_tokens=1000)
-            compact_payload = {
-                "output_contract": output_contract,
-                "template_digest": template_digest,
-                "user_input": user_input[:200],
-                "diagnosis": _truncate_text(diagnosis_text, max_chars=400),
-                "tasks": _truncate_text(tasks_text, max_chars=300),
-                "document_excerpt": _truncate_text(bound_document_text, max_chars=500),
-            }
-            try:
-                final_content = _invoke_generator(compact_chain, compact_payload, schema, role_id, competition_context)
-                log_and_emit(state, "generator", "精简重试成功，模型返回且解析成功。")
-                return {
-                    "generated_content": final_content,
-                    "attempt_count": state.get("attempt_count", 0) + 1,
-                    "messages": [AIMessage(content=json.dumps(final_content, ensure_ascii=False, indent=2))],
-                }
-            except Exception as e2:
-                log_and_emit(state, "generator", f"容错重试依然失败：{e2}", level="error")
-                # 不再让系统崩溃，直接构造一个极简的通过版字典，保全前端渲染
-                fallback_content = {
-                    "is_refused": False,
-                    "reply": "⚠️ **系统提示**：当前项目内容过于庞大或网络出现严重拥堵，导致 AI 深度评审超时。请精简您的项目计划书（控制在 3000 字以内）后重试。",
-                    "rubric_items": []
-                }
-                # 用强硬的补齐代码将其包装为合法输出
-                _validate_competition_output(fallback_content, competition_context)
-                fallback_content = _enrich_competition_content(fallback_content, competition_context)
-                return {
-                    "generated_content": fallback_content,
-                    "attempt_count": state.get("attempt_count", 0) + 1,
-                    "messages": [AIMessage(content=json.dumps(fallback_content, ensure_ascii=False, indent=2))],
-                }
-
-    # ====================
-    # 以下学习模式 / 项目模式逻辑严格恢复为原版
-    # ====================
-    llm = get_llm(temperature=0.25, max_tokens=1800)
-
-    system_prompt_text = (
-        "你是创新创业教学智能体的内容生成器。\n"
-        "请按要求生成回复，并【必须且只能】返回一个合法的 JSON 对象。\n"
-        "【格式要求】：直接输出大括号 {{ }}，不要包含任何解释文字，不要使用 ```json 代码块。\n"
-        "【换行要求】：在 reply 等字符串中，如果需要换行（如 Markdown 的段落），请务必使用 '\\n' 进行转义，不要直接物理回车换行。\n"
-        "【🔥 核心纪律】：严禁偷懒留空，必须严格填满每个 required 字段！"
-    )
-
-    if role_id == "student_tutor":
-        system_prompt_text += (
-            "\n【排版与启发式教学规则（最高优先级）】\n"
-            "1. 视觉渲染：你必须充分利用 Markdown 语法来增强阅读体验！\n"
-            "   - 使用 **加粗** 来强调关键术语和重点句。\n"
-            "   - 使用 > 引用块 来展示具体案例或原话说明。\n"
-            "   - 使用 ### 作为小标题来区分段落。\n"
-            "\n"
-            "2. 反代写红线：如果学生要求“直接写”、“生成商业计划书”、“帮我完善这段话”等代写请求，必须设 is_refused = true。\n"
-            "   - 若触发反代写，`reply` 第一句必须温和但坚定地拒绝（例如：“同学你好，根据我们的教学原则，我不能直接替你写这段内容哦，不过我可以陪你一起梳理思路。”）。\n"
-            "   - 拒绝后，直接在 `reply` 中抛出 2 到 3 个苏格拉底式启发问题，让学生先回答。\n"
-            "\n"
-            "3. 显性结构化：在 reply 中，你必须使用 Markdown 标题（如 `### 📖 概念解析`）依次包含以下 6 个必选结构：\n"
-            "   ### 📖 概念解析（结合图谱客观依据，精准定义）\n"
-            "   ### 💡 项目案例（使用 > 引用块 给出通俗易懂的例子）\n"
-            "   ### ⚠️ 避坑指南（提醒学生历史高发的一个坑（防幻觉，依诊断信息））\n"
-            "   ### 🎯 实操任务（每次【只布置一个】最小阻力的小任务。）\n"
-            "   ### 📦 交付要求（告诉学生具体要交给你什么（比如：一句话、三个标签）。）\n"
-            "   ### ⚖️ 评价标准（告诉学生你会用什么标准来评判对错。）\n"
-            "\n"
-            "4. 苏格拉底式收尾：`reply` 的结尾必须抛出一个具有启发性的问题，把话筒交给学生！\n"
-            "   - 示例范音：“我们先不着急写整段，咱们一步一步来。结合你的项目，你觉得你的目标用户第一痛点是什么？我们先聊聊这个？”\n"
-        )
-    elif role_id == "project_coach":
-        system_prompt_text += (
-            "\n【双轨任务指令（最高优先级）】\n"
-            "你现在肩负双重任务：1. 生成给前端面板的后台结构化数据； 2. 在 reply 字段中生成与学生的真实对话。\n"
-            "\n"
-            "【任务一：生成后台数据（logic_flaw 等字段）】\n"
-            "请严格参考诊断信息，用较精炼但全面的语言（50-100字）填入 logic_flaw, evidence_gap, only_one_task, acceptance_criteria 字段。\n"
-            "\n"
-            "【任务二：撰写对话文本（reply 字段）】\n"
-            "1. 视觉渲染：必须充分利用 Markdown 语法（**加粗**、> 引用块、### 标题、- 列表）。\n"
-            "2. 反代写拦截：面对学生要求直接罗列答案时，设 is_refused = true，在 reply 开头强硬拒绝。\n"
-            "3. 显性结构化：在 reply 中，必须按顺序使用 Markdown 小标题包含以下 5 个模块：\n"
-            "   ### 📍 项目所处阶段（明确指出是 想法期 / 原型期 / 验证期 之一）\n"
-            "   ### 🩺 当前核心诊断（指出最大矛盾或缺口）\n"
-            "   ### 🔎 诊断证据追踪（> 引用原文本或诊断信息说明依据）\n"
-            "   ### ⚠️ 风险预警（说明不修复的致命后果）\n"
-            "   ### 🎯 破局任务（结合前面的 only_one_task，给出执行模板/步骤）\n"
-            "\n"
-            "4. 非对称信息获取与压力测试（核心灵魂）：在 reply 的最后，你必须从以下 3 层逻辑中【选择最致命的 1 到 2 个】作为苏格拉底式追问收尾：\n"
-            "   - 逻辑1【寻找隐形替代品】：引导从产品形态转向任务目标。用户的零成本方案/旧习惯都是你的竞争对手。\n"
-            "   - 逻辑2【模拟巨头入场】：如果字节/腾讯内置了这个功能免费做，你的护城河在哪？\n"
-            "   - 逻辑3【成本转换与生存测试】：这提升的体验能覆盖用户迁移成本吗？不融资你能活多久？\n"
-        )
-
-    system_prompt_text += "\n输出格式参考如下：\n{output_contract}"
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt_text),
-        ("user", "原始输入：\n{user_input}\n\n诊断：\n{diagnosis}\n\n任务：\n{tasks}\n\n上次报错：\n{errors}\n\n⚠️ 警告：请确保字段严密对应！")
-    ])
-
-    chain = prompt | llm
-    log_and_emit(state, "generator", "正在调用模型合成最终反馈...")
-
-    try:
-        final_content = _invoke_generator(
-            chain,
-            {
-                "output_contract": output_contract,
-                "user_input": user_input,
-                "diagnosis": diagnosis_text,
-                "tasks": tasks_text,
-                "errors": errors,
-            },
-            schema,
-            role_id,
-            competition_context,
-        )
-        log_and_emit(state, "generator", "模型返回且解析成功。")
-
-        return {
-            "generated_content": final_content,
-            "attempt_count": state.get("attempt_count", 0) + 1,
-            "messages": [AIMessage(content=json.dumps(final_content, ensure_ascii=False, indent=2))],
-        }
-    except Exception as e:
-        log_and_emit(state, "generator", f"模型调用或解析失败：{e}", level="error")
-        raise ValueError(f"生成器执行失败，未能生成有效格式：{str(e)}")
-
-
-import json
-from typing import Any, Dict, List
-
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -618,6 +66,30 @@ def _build_output_contract(role_id: str) -> str:
         return '{\n  "knowledge_coverage": "知识覆盖统计",\n  "hypergraph_triggers": "规则触发占比",\n  "rubric_distribution": "Rubric分布",\n  "risk_list": [\n    {\n      "project_name": "项目名",\n      "risk_score": "高/中/低",\n      "primary_issues": ["问题1", "问题2"]\n    }\n  ],\n  "teaching_suggestions": "教学干预建议"\n}'
     if role_id == "assessment_assistant":
         return '{\n  "rubric_table": [\n    {\n      "dimension": "评分维度",\n      "score": 1,\n      "evidence_trace": "证据片段"\n    }\n  ],\n  "revision_suggestions": "修订建议",\n  "feedback_templates": "反馈模板"\n}'
+    if role_id == "profile_evaluator":
+        return (
+            '{\n'
+            '  "capabilities": [\n'
+            '    {\n'
+            '      "dimension": "痛点发现 (Empathy)",\n'
+            '      "score": 4.5,\n'
+            '      "reason": "能敏锐洞察细分人群刚需"\n'
+            '    }\n'
+            '  ],\n'
+            '  "stage_diagnoses": [\n'
+            '    {\n'
+            '      "stage_name": "第一阶段（核心价值探测）",\n'
+            '      "performance": "最初描述痛点过于宽泛，经提示后能收敛至特定人群。"\n'
+            '    }\n'
+            '  ],\n'
+            '  "evidences": [\n'
+            '    {\n'
+            '      "student_quote": "我们没有考虑巨头入场的情况",\n'
+            '      "implication": "战略防御能力薄弱"\n'
+            '    }\n'
+            '  ]\n'
+            '}'
+        )
     return "{}"
 
 
@@ -1155,6 +627,28 @@ def generator_node(state: dict) -> dict:
             "   - 逻辑2【模拟巨头入场】：如果字节/腾讯内置了这个功能免费做，你的护城河在哪？\n"
             "   - 逻辑3【成本转换与生存测试】：这提升的体验能覆盖用户迁移成本吗？不融资你能活多久？\n"
         )
+    
+    elif role_id == "profile_evaluator":
+        system_prompt_text += (
+            "\n【核心评估任务指令（最高优先级）】\n"
+            "你现在的角色是高级教学评估专家（Profile Evaluator）。你需要高度专注于分析传入的『学生与AI的多轮对抗对话历史』，严格按照以下要求生成结构化的动态能力画像。\n"
+            "\n【任务一：核心能力量化打分】\n"
+            "你必须输出 capabilities 数组，严格涵盖以下 5 个维度：\n"
+            "1. 痛点发现 (Empathy)\n"
+            "2. 方案策划 (Ideation)\n"
+            "3. 商业建模 (Business)\n"
+            "4. 资源杠杆 (Execution)\n"
+            "5. 逻辑表达 (Logic)\n"
+            "请根据对话历史为每一项打分（0-5分的整数），并给出10-30字的评分理由。\n"
+            "\n【任务二：三轮对话行为诊断】\n"
+            "你必须输出 stage_diagnoses 数组，按顺序梳理这三个阶段的表现诊断：\n"
+            "1. 第一阶段（核心价值探测）\n"
+            "2. 第二阶段（逻辑压力测试）\n"
+            "3. 第三阶段（落地可行性）\n"
+            "\n【任务三：核心证据溯源（极其重要）】\n"
+            "你必须输出 evidences 数组！你的评估绝对不能凭空捏造，必须直接引用历史日志中【学生自己说过的原话片段】（student_quote），并说明其反映的能力长短板（implication）。\n"
+            "⚠️ 警告：绝对不允许输出除此之外的其他 JSON 键（绝不要输出 is_refused 或 reply）！必须严格遵守下方提供的输出格式参考！\n"
+        )
 
     system_prompt_text += "\n输出格式参考如下：\n{output_contract}"
 
@@ -1188,5 +682,3 @@ def generator_node(state: dict) -> dict:
     except Exception as e:
         log_and_emit(state, "generator", f"模型调用或解析失败：{e}", level="error")
         raise ValueError(f"生成器执行失败，未能生成有效格式：{str(e)}")
-
-

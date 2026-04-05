@@ -709,6 +709,9 @@ def build_project_stage_flow(
     # 顺序闯关：每一轮只允许评估一个“当前阶段”。
     # 如果上一轮刚好完成，则通过 next_stage_index 在下一轮再进入下一阶段。
     pending_next_stage_index = int(previous_stage_flow.get("next_stage_index") or 0)
+
+    is_force_completed = previous_stage_flow.get("overall_status") == "completed" or pending_next_stage_index > len(PROJECT_STAGE_DEFINITIONS)
+    
     if previous_stage_flow.get("overall_status") == "completed":
         evaluation_stage_index = len(PROJECT_STAGE_DEFINITIONS)
     elif pending_next_stage_index:
@@ -914,7 +917,13 @@ def build_project_stage_flow(
     current_stage_def = PROJECT_STAGE_DEFINITIONS[current_stage_index - 1]
     current_stage_passed = evaluated_stage_result.get("status") == "passed"
 
+    # 新增：判断上一轮的上一阶段是否已经自然通关
+    prev_stage_was_passed_last_turn = previous_stages.get(previous_stage_id, {}).get("status") == "passed"
+    
+    # 修正精算：强制跳跃的判定标准 -> 当前阶段大于历史阶段，且历史阶段在上一次并没有自然通关
+    is_forced_jump = current_stage_index > previous_stage_index and not prev_stage_was_passed_last_turn
     just_upgraded = current_stage_passed
+
     next_stage_index = None
     next_stage_label = None
     overall_status = "completed" if (current_stage_passed and current_stage_index == len(PROJECT_STAGE_DEFINITIONS)) else "in_progress"
@@ -934,7 +943,14 @@ def build_project_stage_flow(
             stage["status"] = "locked"
         normalized_stage_results[stage["id"]] = stage
 
-    milestone_message = current_stage_def.get("milestone_message", '') if just_upgraded else ''
+    if just_upgraded:
+        milestone_message = current_stage_def.get("milestone_message", '')
+    elif is_forced_jump:
+        skipped_stage_def = PROJECT_STAGE_DEFINITIONS[previous_stage_index - 1]
+        milestone_message = f"【系统提示：教师已强制调控流转至“{current_stage_def.get('label')}”】上一阶段未达标规则已作豁免处理。"
+    else:
+        milestone_message = ""
+
     current_stage_alerts = list(evaluated_stage_result.get("active_alerts", []))
     current_followup_questions = list(evaluated_stage_result.get("followup_questions", []))
     guardrail_rule_ids = list(current_stage_def.get("guardrail_rule_ids", []))

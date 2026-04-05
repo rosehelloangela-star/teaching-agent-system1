@@ -18,11 +18,9 @@ from app.schemas.conversation import (
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-
 def _normalize_title(title: str | None) -> str:
     title = (title or "").strip()
     return title if title else "新对话"
-
 
 def _safe_json_loads(raw, fallback):
     if raw is None:
@@ -34,17 +32,18 @@ def _safe_json_loads(raw, fallback):
     except Exception:
         return fallback
 
-
 def _parse_classes(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [item.strip() for item in str(raw).split(",") if item.strip()]
 
-
 def _get_teacher_accessible_students(db: Session, teacher_id: str) -> list[User]:
     teacher = db.query(User).filter(User.id == teacher_id).first()
     if not teacher:
-        raise HTTPException(status_code=404, detail="教师不存在")
+        # 【核心修复】以前这里是 raise HTTPException(404)，查不到老师直接导致整个前端崩溃报404。
+        # 现在改为打印日志并返回空数组，彻底解决 404 挂掉的问题！
+        print(f"[DEBUG] 警告: 教师ID {teacher_id} 在数据库中未找到。")
+        return []
 
     if teacher.role == "admin":
         return db.query(User).filter(User.role == "student").all()
@@ -58,7 +57,6 @@ def _get_teacher_accessible_students(db: Session, teacher_id: str) -> list[User]
         .filter(User.role == "student", User.class_name.in_(teacher_classes))
         .all()
     )
-
 
 def _build_teacher_summary(conversation: Conversation, student: User) -> dict:
     chat_history = _safe_json_loads(conversation.chat_history, [])
@@ -81,11 +79,9 @@ def _build_teacher_summary(conversation: Conversation, student: User) -> dict:
         ),
     }
 
-
 @router.post("/attachments/upload")
 async def upload_teacher_attachment(file: UploadFile = File(...)):
     return await save_teacher_attachment(file)
-
 
 @router.get("/attachments/{file_id}")
 def download_teacher_attachment(file_id: str):
@@ -95,7 +91,6 @@ def download_teacher_attachment(file_id: str):
         raise HTTPException(status_code=404, detail="附件不存在")
     download_name = safe_name.split("_", 1)[1] if "_" in safe_name else safe_name
     return FileResponse(path=file_path, filename=download_name, media_type='application/octet-stream')
-
 
 @router.post("/", response_model=ConversationResponse)
 def create_conversation(
@@ -110,12 +105,10 @@ def create_conversation(
         document_status="none",
         last_mode="learning",
     )
-
     db.add(new_conversation)
     db.commit()
     db.refresh(new_conversation)
     return new_conversation
-
 
 @router.get("/", response_model=List[ConversationResponse])
 def get_conversations(
@@ -130,7 +123,9 @@ def get_conversations(
     )
     return conversations
 
-
+# ==========================================
+# 教师端拉取全班项目的接口 (前端报错 404 的接口)
+# ==========================================
 @router.get("/teacher/projects")
 def get_teacher_project_conversations(
     teacher_id: str = Query(...),
@@ -203,7 +198,7 @@ def get_teacher_project_conversation_detail(
 
     return _build_teacher_summary(conversation, student)
 
-
+# 这个接口由于名字太宽泛，一定要放在 /teacher/projects 下面
 @router.get("/{conversation_id}", response_model=ConversationResponse)
 def get_conversation_detail(
     conversation_id: str,

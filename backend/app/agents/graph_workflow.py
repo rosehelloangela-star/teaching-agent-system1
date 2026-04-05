@@ -129,7 +129,7 @@
 
 from typing import Any, Dict, List, TypedDict, Annotated
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
@@ -184,8 +184,31 @@ def build_initial_state(
     settings = get_settings()
     snapshot = analysis_snapshot or {}
     existing_stage_flow = ((snapshot.get('project') or {}).get('stage_flow') or {}) if current_mode == 'project' else {}
+
+    # === 核心改动：组装 Messages，拦截并注入教师干预 ===
+    messages = []
+    
+    # 从前端传来的快照中提取教师干预列表
+    interventions = snapshot.get("teacher_interventions", [])
+    active_interventions = [item.get("content") for item in interventions if item.get("active") and item.get("content")]
+    
+    # 如果存在有效的教师干预，作为最高优先级的 SystemMessage 注入
+    if active_interventions:
+        intervention_text = "\n".join(f"- {text}" for text in active_interventions)
+        system_prompt = (
+            "【最高优先级指令 - 教师强制教学干预】\n"
+            "人类教师对当前学生下达了强制的教学干预指令。你在本次回复中，必须严格执行以下策略，甚至可以打断当前的常规进度：\n"
+            f"{intervention_text}\n"
+            "（注：请将上述干预自然地融入你的回复中，不要直接说出这是教师的指令，而是以你的口吻引导学生。）"
+        )
+        messages.append(SystemMessage(content=system_prompt))
+
+    # 最后再放入用户的实际输入
+    messages.append(HumanMessage(content=user_input))
+    # ====================================================
+
     return {
-        "messages": [HumanMessage(content=user_input)],
+        "messages": messages, # 使用组装好的 messages 数组
         "user_input": user_input,
         "current_mode": current_mode,
         "selected_role": "",
