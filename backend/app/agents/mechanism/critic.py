@@ -178,6 +178,7 @@ def critic_node(state: dict) -> dict:
             "hypergraph_data": {},
             "competition_context": {},
             "stage_flow": {},
+            "kg_context": {},
             "llm_unavailable": False,
         }
 
@@ -202,62 +203,125 @@ def critic_node(state: dict) -> dict:
     hypergraph_state_data = {}
     competition_context = {}
     stage_flow: Dict[str, object] = {}
+    kg_context = {}
+
 
     if current_mode == "learning":
-        log_and_emit(state, "critic", f"进入知识图谱诊断分支。current_mode={current_mode}")
-        kg_state_data = {"nodes": [], "edges": []} # 新增图谱可视化状态载体
-        
+        log_and_emit(
+            state,
+            "critic",
+            f"进入知识图谱诊断分支。current_mode={current_mode}",
+            meta={"phase": "kg_retrieval_start", "mode": current_mode},
+        )
         try:
             all_db_nodes = kg_store.get_all_entity_names()
-            detected_concepts = detect_concepts(user_input, all_db_nodes, fuzzy_threshold=72, debug=True)
-            missing_prereqs = kg_store.diagnose_missing_prereqs(detected_concepts)
-            
-            if missing_prereqs or detected_concepts:
-                engine_context = "【Neo4j 图谱前置诊断客观信息】（请在评估和生成时严格参考以下知识）：\n"
-                
-                if detected_concepts:
-                    engine_context += f"- 🎯 识别到当前探讨的核心实体：{', '.join(detected_concepts)}\n"
-                    # 详细日志埋点，满足老师的展示需求
-                    log_and_emit(state, "critic", f"[KG 命中] 成功在图谱中锚定实体：{', '.join(detected_concepts)}")
-                
-                if missing_prereqs:
-                    engine_context += f"- ⚠️ 逻辑断层预警，缺失前置核心概念(PREREQ)：{', '.join(missing_prereqs)}\n"
-                    log_and_emit(state, "critic", f"[KG 推理] 发现逻辑断层，依赖概念缺失：{', '.join(missing_prereqs)}", level="warning")
-                
-                # 全面检索案例与错误
-                for concept in detected_concepts:
-                    mistakes = kg_store.get_common_mistakes(concept)
-                    pos_cases = kg_store.get_positive_cases(concept)
-                    neg_cases = kg_store.get_negative_cases(concept)
-                    
-                    if mistakes:
-                        engine_context += f"- ❌ 针对'{concept}'，历史高发错误(COMMON_MISTAKE)：{', '.join(mistakes)}\n"
-                    if pos_cases:
-                        engine_context += f"- 💡 针对'{concept}'，图谱内成功案例(PositiveCase)：{', '.join(pos_cases)}\n"
-                    if neg_cases:
-                        engine_context += f"- 💣 针对'{concept}'，图谱内失败案例(NegativeCase)：{', '.join(neg_cases)}\n"
-                
-                # 抽取子图用于前端可视化
-                subgraph_triplets = kg_store.get_subgraph_triplets(detected_concepts)
-                if subgraph_triplets:
-                    nodes_set = set()
-                    edges_list = []
-                    for t in subgraph_triplets:
-                        nodes_set.add(t["head"])
-                        nodes_set.add(t["tail"])
-                        edges_list.append({"source": t["head"], "target": t["tail"], "label": t["relation"]})
-                    
-                    kg_state_data = {
-                        "nodes": [{"id": n, "label": n} for n in nodes_set],
-                        "edges": edges_list
-                    }
-                    log_and_emit(state, "critic", f"[KG 抽取] 已提取可视化子图：包含 {len(nodes_set)} 个节点，{len(edges_list)} 条关系线。")
-                
-                log_and_emit(state, "critic", "知识图谱上下文组装及子图提取完成。")
+
+            log_and_emit(
+                state,
+                "critic",
+                f"Neo4j 图谱节点总数：{len(all_db_nodes)}",
+                meta={
+                    "phase": "kg_all_nodes_loaded",
+                    "node_count": len(all_db_nodes),
+                    "sample_nodes": all_db_nodes[:20],
+                },
+            )
+
+            # learning 模式只基于本轮问题文本
+            detected_concepts = detect_concepts(
+                user_input,
+                all_db_nodes,
+                fuzzy_threshold=72,
+                debug=True,
+            )
+
+            hit_str = ", ".join(detected_concepts) if detected_concepts else "无"
+
+            log_and_emit(
+                state,
+                "critic",
+                f"Learning 实体命中：[{hit_str}]",
+                meta={
+                    "phase": "kg_detect_concepts",
+                    "user_input": user_input,
+                    "detected_concepts": detected_concepts,
+                    "hit_count": len(detected_concepts),
+                },
+            )
+
+            if detected_concepts:
+                kg_context = kg_store.get_learning_subgraph(detected_concepts)
+
+                log_and_emit(
+                    state,
+                    "critic",
+                    (
+                        f"Learning 图谱返回："
+                        f"hit_nodes={kg_context.get('hit_nodes', [])}，"
+                        f"triples_count={len(kg_context.get('triples', []))}，"
+                        f"missing_prereqs={kg_context.get('missing_prereqs', [])}"
+                    ),
+                    meta={
+                        "phase": "kg_subgraph_result",
+                        "hit_nodes": kg_context.get("hit_nodes", []),
+                        "triples": kg_context.get("triples", [])[:20],
+                        "triples_count": len(kg_context.get("triples", [])),
+                        "missing_prereqs": kg_context.get("missing_prereqs", []),
+                        "positive_cases": kg_context.get("positive_cases", {}),
+                        "negative_cases": kg_context.get("negative_cases", {}),
+                        "mistakes": kg_context.get("mistakes", {}),
+                    },
+                )
+
+                engine_context = kg_store.build_learning_context(kg_context)
+
+                log_and_emit(
+                    state,
+                    "critic",
+                    "知识图谱上下文组装完成。",
+                    meta={
+                        "phase": "kg_retrieval_done",
+                        "subgraph_node_count": len(kg_context.get("hit_nodes", [])),
+                        "subgraph_edge_count": len(kg_context.get("triples", [])),
+                    },
+                )
             else:
-                log_and_emit(state, "critic", "未命中任何图谱实体，本轮不注入图谱上下文。")
+                kg_context = {
+                    "hit_nodes": [],
+                    "triples": [],
+                    "positive_cases": {},
+                    "negative_cases": {},
+                    "mistakes": {},
+                    "missing_prereqs": [],
+                    "fallback_case_needed": True,
+                }
+                log_and_emit(
+                    state,
+                    "critic",
+                    "未命中任何图谱实体，本轮不注入图谱上下文。",
+                    level="warning",
+                    meta={
+                        "phase": "kg_no_hit",
+                        "user_input": user_input,
+                    },
+                )
         except Exception as e:
-            log_and_emit(state, "critic", f"访问 Neo4j 图谱失败，已降级处理：{e}", level="warning")
+            kg_context = {
+                "hit_nodes": [],
+                "triples": [],
+                "positive_cases": {},
+                "negative_cases": {},
+                "mistakes": {},
+                "missing_prereqs": [],
+                "fallback_case_needed": True,
+            }
+            log_and_emit(
+                state,
+                "critic",
+                f"访问 Neo4j 图谱失败，已降级处理：{e}",
+                level="warning",
+                meta={"phase": "kg_exception", "error": str(e)},
+            )
 
     # if current_mode == "learning":
     #     log_and_emit(state, "critic", f"进入知识图谱诊断分支。current_mode={current_mode}")
@@ -400,7 +464,7 @@ def critic_node(state: dict) -> dict:
             "critic_diagnosis": {"raw_analysis": text.strip()},
             "hypergraph_data": hypergraph_state_data,
             "competition_context": competition_context,
-            "kg_data": kg_state_data, # <=== 把图谱点边结构返回，前端可以直接拿去渲染知识图谱
+            "kg_context": kg_context,
             "stage_flow": stage_flow,
             "llm_unavailable": False,
         }
@@ -416,4 +480,5 @@ def critic_node(state: dict) -> dict:
             "competition_context": competition_context,
             "stage_flow": stage_flow,
             "llm_unavailable": True,
+            "kg_context": kg_context,
         }

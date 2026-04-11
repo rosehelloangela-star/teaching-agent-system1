@@ -35,11 +35,13 @@ def emit_event(thread_id: Optional[str], event: Dict[str, Any]) -> None:
         q.put(payload)
 
 
+# ====== 修改1：增加 meta ======
 def emit_log(
     thread_id: Optional[str],
     node: str,
     message: str,
     level: str = "info",
+    meta: Optional[Dict[str, Any]] = None,
 ) -> None:
     emit_event(
         thread_id,
@@ -48,6 +50,7 @@ def emit_log(
             "node": node,
             "level": level,
             "message": message,
+            "meta": meta or {},
         },
     )
 
@@ -64,17 +67,19 @@ def emit_done(thread_id: Optional[str]) -> None:
     emit_event(thread_id, {"type": "done"})
 
 
+# ====== 修改2：log_and_emit 透传 meta ======
 def log_and_emit(
     state: Optional[dict],
     node: str,
     message: str,
     level: str = "info",
+    meta: Optional[Dict[str, Any]] = None,
 ) -> None:
-    prefix = f"[{node}] {message}"
+    prefix = f"[{node}][{level}] {message}"
     print(prefix, flush=True)
 
     thread_id = None
     if isinstance(state, dict):
         thread_id = state.get("thread_id")
 
-    emit_log(thread_id, node=node, message=message, level=level)
+    emit_log(thread_id, node=node, message=message, level=level, meta=meta)

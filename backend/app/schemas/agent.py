@@ -89,3 +89,4 @@ class AgentRunResponse(BaseModel):
     analysis_snapshot: Dict[str, Any] = Field(default_factory=dict)
     hypergraph_data: Dict[str, Any] = Field(default_factory=dict)
     stage_flow: Dict[str, Any] = Field(default_factory=dict)
+    kg_context: Dict[str, Any] = Field(default_factory=dict)
