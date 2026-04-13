@@ -735,3 +735,52 @@ def generator_node(state: dict) -> dict:
     except Exception as e:
         log_and_emit(state, "generator", f"模型调用或解析失败：{e}", level="error")
         raise ValueError(f"生成器执行失败，未能生成有效格式：{str(e)}")
+
+import json
+from langchain_core.messages import HumanMessage, SystemMessage
+from app.agents.mechanism.llm_config import get_llm
+
+async def extract_knowledge_card_from_text(file_text: str) -> dict:
+    """
+    纯净的 LLM 业务逻辑：接收文本，返回结构化字典
+    """
+    system_text = (
+        "你是一个专业的商业案例分析专家。请根据以下文本提取信息，必须严格返回纯JSON格式，绝对不要任何Markdown包裹（如 ```json ），不要任何前言后语。如果某字段缺失，请填'无'。\n"
+        "需要提取的字段结构如下：\n"
+        "{\n"
+        "    \"title\": \"项目名称或核心主题\",\n"
+        "    \"card_type\": \"案例\",\n"
+        "    \"industry\": \"所属行业\",\n"
+        "    \"target_customer\": \"目标客户群体\",\n"
+        "    \"core_pain_point\": \"解决的核心痛点\",\n"
+        "    \"solution\": \"核心解决方案\",\n"
+        "    \"business_model\": \"盈利模式/商业模式\",\n"
+        "    \"applicable_stages\": \"适用阶段\",\n"
+        "    \"covered_rule_ids\": \"关联规则编号(如无则填空)\",\n"
+        "    \"evidence_items\": \"原文中的关键证据或数据\"\n"
+        "}"
+    )
+    
+    user_text = f"待提取文本：\n{file_text}"
+    
+    # 使用你现有的 LLM 配置
+    llm = get_llm(temperature=0.1, max_tokens=1000)
+    
+    try:
+        # 单次调用大模型
+        response = await llm.ainvoke([
+            SystemMessage(content=system_text),
+            HumanMessage(content=user_text)
+        ])
+        
+        # 复用你已有的清洗方法
+        from app.core.json_utils import message_content_to_text
+        raw_text = message_content_to_text(response)
+        cleaned_response = _clean_json_fence(raw_text)
+        
+        return json.loads(cleaned_response)
+        
+    except json.JSONDecodeError:
+        raise ValueError("大模型未能返回有效的 JSON 结构。")
+    except Exception as e:
+        raise ValueError(f"大模型提取失败: {str(e)}")

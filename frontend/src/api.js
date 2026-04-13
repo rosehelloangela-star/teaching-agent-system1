@@ -408,3 +408,61 @@ export const saveClassReport = async (className, reportData) => {
     throw error;
   }
 };
+
+/* =========================
+   Knowledge Cards APIs
+========================= */
+export const fetchKnowledgeCards = async () => {
+  try {
+    const response = await api.get('/conversations/knowledge-cards');
+    return response.data;
+  } catch (error) {
+    console.error('拉取知识卡片库失败:', error);
+    throw error;
+  }
+};
+
+export const saveKnowledgeCard = async (cardData) => {
+  try {
+    const response = await api.post('/conversations/knowledge-cards', cardData);
+    return response.data;
+  } catch (error) {
+    console.error('保存知识卡片失败:', error);
+    throw error;
+  }
+};
+
+export const extractKnowledgeCard = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file.raw ?? file);
+
+  try {
+    const response = await api.post('/conversations/knowledge-cards/extract', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data; // 后端直接返回干净的 JSON 对象
+  } catch (error) {
+    console.error('提取知识卡片失败:', error);
+    throw error.response?.data?.detail || '提取失败，请重试';
+  }
+};
+
+export const updateKnowledgeCard = async (cardId, cardData) => {
+  try {
+    const response = await api.put(`/conversations/knowledge-cards/${cardId}`, cardData);
+    return response.data;
+  } catch (error) {
+    console.error('更新知识卡片失败:', error);
+    throw error;
+  }
+};
+
+export const deleteKnowledgeCard = async (cardId) => {
+  try {
+    const response = await api.delete(`/conversations/knowledge-cards/${cardId}`);
+    return response.data;
+  } catch (error) {
+    console.error('删除知识卡片失败:', error);
+    throw error;
+  }
+};

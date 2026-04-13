@@ -143,3 +143,22 @@ class ClassReport(Base):
     report_content = Column(Text, nullable=True) # 存放 JSON 字符串
     
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class KnowledgeCard(Base):
+    __tablename__ = "knowledge_cards"
+
+    id = Column(String, primary_key=True, index=True, default=lambda: f"card_{uuid.uuid4().hex[:8]}")
+    title = Column(String, nullable=False)
+    card_type = Column(String, default="case") # case / policy / method
+    industry = Column(String)
+    target_customer = Column(String)
+    core_pain_point = Column(Text)
+    solution = Column(Text)
+    business_model = Column(Text)
+    applicable_stages = Column(String)
+    covered_rule_ids = Column(String) # 关联的规则ID
+    evidence_items = Column(Text)     # 存储为 JSON 字符串
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 也可以加上创建者教师 ID
+    creator_id = Column(String, nullable=True)

@@ -3,13 +3,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.file_utils import ATTACHMENT_ROOT, extract_file_payload, save_teacher_attachment
 from app.db.database import get_db
 from app.db.models import Conversation, User, ClassReport
+from app.db.models import KnowledgeCard
+from app.core.file_utils import extract_file_payload
+# 引入我们刚才在 generator.py 写的逻辑函数
+from app.agents.mechanism.generator import extract_knowledge_card_from_text
 from app.schemas.conversation import (
     ConversationCreateRequest,
     ConversationResponse,
@@ -202,6 +206,79 @@ def get_teacher_project_conversation_detail(
         raise HTTPException(status_code=403, detail="当前教师无权访问该项目会话")
 
     return _build_teacher_summary(conversation, student)
+
+
+# ==========================================
+# 卡片
+# ==========================================
+@router.post("/knowledge-cards/extract")
+async def extract_card_from_file(file: UploadFile = File(...)):
+    """
+    网络路由层：接收文件，调用 LLM，返回结果
+    """
+    # 1. 提取文件文本
+    payload = await extract_file_payload(file)
+    if not payload.get("supported") or not payload.get("text"):
+        raise HTTPException(status_code=400, detail="文件解析失败或内容为空")
+    
+    file_text = payload["text"][:5000] # 截取前 5000 字
+    
+    # 2. 调用业务逻辑层
+    try:
+        extracted_data = await extract_knowledge_card_from_text(file_text)
+        return extracted_data
+    except ValueError as ve:
+        raise HTTPException(status_code=500, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="系统内部错误，提取失败")
+
+@router.get("/knowledge-cards")
+def list_cards(db: Session = Depends(get_db)):
+    return db.query(KnowledgeCard).order_by(KnowledgeCard.created_at.desc()).all()
+
+@router.post("/knowledge-cards")
+def create_card(request: dict, db: Session = Depends(get_db)):
+    # 这里的 request 是前端提取成功后发送的完整字段
+    new_card = KnowledgeCard(**request)
+    db.add(new_card)
+    db.commit()
+    db.refresh(new_card)
+    return new_card
+
+@router.delete("/knowledge-cards/{card_id}")
+def delete_card(card_id: str, db: Session = Depends(get_db)):
+    card = db.query(KnowledgeCard).filter(KnowledgeCard.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="卡片不存在")
+    db.delete(card)
+    db.commit()
+    return {"status": "success"}
+
+@router.put("/knowledge-cards/{card_id}")
+def update_card(
+    card_id: str, 
+    request: dict = Body(...),  # 🌟 显式指定从 Body 获取数据
+    db: Session = Depends(get_db)
+):
+    # 先查找是否存在
+    card = db.query(KnowledgeCard).filter(KnowledgeCard.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="卡片不存在")
+    
+    try:
+        # 🌟 过滤掉不可更改的系统字段，只更新业务字段
+        # 这样可以防止前端传来的 id 字段触发数据库的主键更新冲突
+        for key, value in request.items():
+            if hasattr(card, key) and key not in ("id", "created_at", "updated_at"):
+                setattr(card, key, value)
+                
+        db.commit()
+        db.refresh(card)
+        return card
+    except Exception as e:
+        db.rollback() # 出错回滚，防止数据库 Session 挂起
+        print(f"[ERROR] 更新卡片失败: {str(e)}") # 后端日志打印具体错误
+        raise HTTPException(status_code=500, detail="数据库更新失败，请检查字段格式")
 
 # 这个接口由于名字太宽泛，一定要放在 /teacher/projects 下面
 @router.get("/{conversation_id}", response_model=ConversationResponse)

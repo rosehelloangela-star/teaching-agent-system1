@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Bot, CheckCircle, Loader2, Send, ShieldAlert, User, UserCog, Search, FileText, CheckSquare, Clock } from 'lucide-react';
+import { Activity, Bot, CheckCircle, Loader2, Send, ShieldAlert, User, UserCog, Search, FileText, CheckSquare, Clock, Paperclip } from 'lucide-react';
 import {
   RadarChart,
   PolarGrid,
@@ -13,8 +13,15 @@ import {
   fetchTeacherConversationDetail,
   runAgent,
   syncConversationState,
-  saveConversationEvaluation // <--- 新增
+  saveConversationEvaluation,
+  fetchKnowledgeCards,
+  saveKnowledgeCard,
+  API_BASE_URL,
+  extractKnowledgeCard,
+  deleteKnowledgeCard,
+  updateKnowledgeCard
 } from '../api';
+import { X } from 'lucide-react';
 
 function safeParseJSON(raw, fallback) {
   if (!raw) return fallback;
@@ -36,6 +43,14 @@ export default function StudentProfileView({ currentUser }) {
   
   const [detail, setDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const [cardLibrary, setCardLibrary] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [cardForm, setCardForm] = useState({
+    title: '', card_type: '案例', industry: '', target_customer: '', 
+    core_pain_point: '', solution: '', business_model: '', 
+    applicable_stages: '', covered_rule_ids: '', evidence_items: ''
+  });
 
   const [interventionType, setInterventionType] = useState('rule');
   const [interventionRule, setInterventionRule] = useState('');
@@ -87,6 +102,18 @@ export default function StudentProfileView({ currentUser }) {
   }, [currentUser?.id, search]);
 
   useEffect(() => {
+    const loadLibrary = async () => {
+      try {
+        const data = await fetchKnowledgeCards();
+        setCardLibrary(data);
+      } catch (e) {
+        console.error("加载案例库失败", e);
+      }
+    };
+    loadLibrary();
+  }, []);
+
+  useEffect(() => {
     if (activeStudent) {
       const allConvs = [...activeStudent.completed_conversations, ...activeStudent.ongoing_conversations];
       const stillValid = allConvs.some(c => c.id === selectedConvId);
@@ -105,7 +132,6 @@ export default function StudentProfileView({ currentUser }) {
       try {
         const data = await fetchTeacherConversationDetail(selectedConvId, currentUser.id);
         setDetail(data);
-        // 【修改点】：如果有已保存的报告，直接反序列化显示
         if (data.evaluation_report) {
           setEvalReport(safeParseJSON(data.evaluation_report, null));
         } else {
@@ -127,14 +153,26 @@ export default function StudentProfileView({ currentUser }) {
   };
 
   const handleInjectRule = async () => {
-    if (!detail?.id || !interventionRule.trim()) return;
-    const intervention = {
-      id: `intervention-${Date.now()}`, type: interventionType, content: interventionRule.trim(), created_at: new Date().toISOString(), active: true,
-    };
-    const teacherMessage = {
+    if (!detail?.id) return;
+    if (interventionType === 'rule' && !interventionRule.trim()) return;
+    if (interventionType === 'case' && !cardForm.title) return alert("请先填写卡片信息");
+
+    let contentForAgent = interventionRule.trim();
+    let teacherMessage = {
       id: `teacher-intervention-${Date.now()}`, role: 'teacher', mode: 'teacher_intervention', 
-      text: `【教师${interventionType === 'case' ? '案例注入' : '干预规则'}】${interventionRule.trim()}`, unreadByStudent: true,
+      text: `【教师干预规则】${interventionRule.trim()}`, unreadByStudent: true,
     };
+
+    if (interventionType === 'case') {
+      contentForAgent = `[结构化案例注入] 名称:${cardForm.title}, 行业:${cardForm.industry}, 痛点:${cardForm.core_pain_point}, 方案:${cardForm.solution}, 证据:${cardForm.evidence_items}。请引导学生阅读此案例。`;
+      teacherMessage = {
+        ...teacherMessage,
+        text: `老师向你发送了一张【结构化案例卡片】，请仔细阅读并结合你的项目进行思考。`,
+        cardData: cardForm 
+      };
+    }
+
+    const intervention = { id: `intervention-${Date.now()}`, type: interventionType, content: contentForAgent, created_at: new Date().toISOString(), active: true };
     const nextSnapshot = { ...snapshot, teacher_interventions: [...interventions, intervention] };
     await persistFullConversation([...messages, teacherMessage], nextSnapshot);
     setRuleInjected(true);
@@ -151,10 +189,7 @@ export default function StudentProfileView({ currentUser }) {
       
       const data = await runAgent(prompt, 'profile_evaluator', `eval_thread_${detail.id}`, [], detail.id);
       setEvalReport(data.generated_content);
-
-      // 【修改点】：生成成功后，静默保存到数据库
       await saveConversationEvaluation(detail.id, data.generated_content);
-      
     } catch (error) {
       console.error(error);
       alert('评估报告生成失败，请检查网络或后端 Agent 日志。');
@@ -162,6 +197,73 @@ export default function StudentProfileView({ currentUser }) {
       setEvalLoading(false);
     }
   };
+
+  const handleExtractFromFile = async (file) => {
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      const extractedData = await extractKnowledgeCard(file);
+      delete extractedData.id;
+      setCardForm(extractedData);
+    } catch (e) {
+      console.error(e);
+      alert(typeof e === 'string' ? e : "提取失败，请检查文件或稍后重试");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // ✅ 新增：清空表单函数
+  const clearCardForm = () => {
+    setCardForm({
+      id: null,
+      title: '', card_type: '案例', industry: '', target_customer: '', 
+      core_pain_point: '', solution: '', business_model: '', 
+      applicable_stages: '', covered_rule_ids: '', evidence_items: ''
+    });
+  };
+
+  const saveCardToLibrary = async () => {
+    if (!cardForm.title) return alert("标题不能为空");
+    
+    try {
+      const { id, created_at, ...cleanData } = cardForm;
+
+      if (id) {
+        await updateKnowledgeCard(id, cleanData);
+        alert("✅ 已保存对原卡片的修改");
+      } else {
+        await saveKnowledgeCard(cleanData);
+        alert("✨ 已作为新卡片存入公库");
+      }
+      
+      const data = await fetchKnowledgeCards();
+      setCardLibrary(data);
+    } catch (err) {
+      console.error("保存失败:", err);
+      alert(`操作失败: ${err.message || "数据库处理异常，请检查后端日志"}`);
+    }
+  };
+
+  const selectFromLibrary = (card) => {
+    setCardForm(card);
+  };
+  
+  const handleDeleteCard = async (e, cardId) => {
+    e.stopPropagation();
+    if (!window.confirm("确定要永久删除这张案例卡片吗？全班老师都将无法使用。")) return;
+    
+    try {
+      await deleteKnowledgeCard(cardId);
+      // 如果删除的是当前正在编辑的卡片，清空表单
+      if (cardForm.id === cardId) clearCardForm();
+      const data = await fetchKnowledgeCards();
+      setCardLibrary(data);
+    } catch (e) {
+      alert("删除失败");
+    }
+  };
+
   const isCurrentConvCompleted = activeStudent?.completed_conversations.some(c => c.id === selectedConvId);
 
   return (
@@ -207,11 +309,9 @@ export default function StudentProfileView({ currentUser }) {
             </div>
 
             <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-0">
-              {/* 核心修改点：左侧这整个容器自带 overflow-y-auto，内容变长即可整栏滑动 */}
               <div className="min-h-0 p-6 border-r border-slate-200 overflow-y-auto flex flex-col gap-6">
                 <div>
                   <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-2"><Activity size={18} className="text-blue-500" /> 真实交互日志记录</h3>
-                  {/* 把高度由 h-64 改为了 h-[550px]，让聊天框大幅变长 */}
                   <div className="bg-white border border-slate-200 rounded-xl p-4 h-[350px] overflow-y-auto text-xs space-y-4 font-mono shadow-inner">
                     {loadingDetail ? <Loader2 className="animate-spin text-slate-400 mx-auto mt-10" /> : messages.map((msg, i) => (
                       <div key={i} className={`flex gap-2 p-2 rounded ${msg.mode === 'teacher_intervention' ? 'bg-red-50 border border-red-200' : msg.role === 'teacher' ? 'bg-emerald-50' : 'bg-slate-50'}`}>
@@ -227,15 +327,102 @@ export default function StudentProfileView({ currentUser }) {
                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
                   <div>
                     <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-3"><ShieldAlert size={18} className="text-red-500" /> 强制教学干预注入</h3>
+                    
                     <div className="flex gap-2">
                       <select value={interventionType} onChange={(e) => setInterventionType(e.target.value)} className="border border-slate-300 rounded-lg p-2 text-sm bg-white outline-none">
-                        <option value="rule">规则</option><option value="case">案例</option>
+                        <option value="rule">规则干预</option>
+                        <option value="case">结构化卡片</option>
                       </select>
-                      <input value={interventionRule} onChange={(e) => setInterventionRule(e.target.value)} placeholder="要求学生先回答单位经济..." className="flex-1 border border-slate-300 rounded-lg p-2 text-sm outline-none bg-red-50/20"/>
-                      <button onClick={handleInjectRule} disabled={!interventionRule.trim()} className="bg-red-500 hover:bg-red-600 text-white px-4 rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50 transition-colors">
-                        {ruleInjected ? <CheckCircle size={16} /> : <Send size={16} />}
-                      </button>
+                      
+                      {interventionType === 'rule' ? (
+                        <>
+                          <input value={interventionRule} onChange={(e) => setInterventionRule(e.target.value)} placeholder="要求学生先回答单位经济..." className="flex-1 border border-slate-300 rounded-lg p-2 text-sm outline-none bg-red-50/20"/>
+                          <button onClick={handleInjectRule} disabled={!interventionRule.trim()} className="bg-red-500 hover:bg-red-600 text-white px-4 rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50">
+                            {ruleInjected ? <CheckCircle size={16} /> : <Send size={16} />}
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex-1 flex items-center gap-2">
+                          <label className="flex-1 flex items-center justify-center gap-2 border border-dashed border-purple-300 bg-purple-50 text-purple-700 rounded-lg p-2 text-sm cursor-pointer hover:bg-purple-100 transition-colors">
+                            {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+                            {isUploading ? "正在 AI 提取结构化数据..." : "上传 PDF/Word 一键提取卡片"}
+                            <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => handleExtractFromFile(e.target.files[0])} />
+                          </label>
+                        </div>
+                      )}
                     </div>
+
+                    {interventionType === 'case' && (
+                      <div className="mt-4 space-y-4">
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 grid grid-cols-3 gap-2 text-xs">
+                          <div className="col-span-2"><label className="text-slate-500 block mb-1">名称 Title</label><input value={cardForm.title} onChange={e=>setCardForm({...cardForm, title: e.target.value})} className="w-full border rounded p-1.5" /></div>
+                          <div><label className="text-slate-500 block mb-1">类型 Type</label><input value={cardForm.card_type} onChange={e=>setCardForm({...cardForm, card_type: e.target.value})} className="w-full border rounded p-1.5" /></div>
+                          <div><label className="text-slate-500 block mb-1">行业 Industry</label><input value={cardForm.industry} onChange={e=>setCardForm({...cardForm, industry: e.target.value})} className="w-full border rounded p-1.5" /></div>
+                          <div><label className="text-slate-500 block mb-1">阶段 Stages</label><input value={cardForm.applicable_stages} onChange={e=>setCardForm({...cardForm, applicable_stages: e.target.value})} className="w-full border rounded p-1.5" /></div>
+                          <div><label className="text-slate-500 block mb-1">关联规则 Rule IDs</label><input value={cardForm.covered_rule_ids} onChange={e=>setCardForm({...cardForm, covered_rule_ids: e.target.value})} className="w-full border rounded p-1.5" /></div>
+                          <div className="col-span-3"><label className="text-slate-500 block mb-1">目标客户 Target Customer</label><input value={cardForm.target_customer} onChange={e=>setCardForm({...cardForm, target_customer: e.target.value})} className="w-full border rounded p-1.5" /></div>
+                          <div className="col-span-3"><label className="text-slate-500 block mb-1">商业模式 Business Model</label><textarea value={cardForm.business_model} onChange={e=>setCardForm({...cardForm, business_model: e.target.value})} className="w-full border rounded p-1.5 h-10 resize-none" /></div>
+                          <div className="col-span-3"><label className="text-slate-500 block mb-1">核心痛点 Pain Point</label><textarea value={cardForm.core_pain_point} onChange={e=>setCardForm({...cardForm, core_pain_point: e.target.value})} className="w-full border rounded p-1.5 h-10 resize-none" /></div>
+                          <div className="col-span-3"><label className="text-slate-500 block mb-1">解决方案 Solution</label><textarea value={cardForm.solution} onChange={e=>setCardForm({...cardForm, solution: e.target.value})} className="w-full border rounded p-1.5 h-10 resize-none" /></div>
+                          <div className="col-span-3"><label className="text-slate-500 block mb-1">原文证据 Evidence</label><textarea value={cardForm.evidence_items} onChange={e=>setCardForm({...cardForm, evidence_items: e.target.value})} className="w-full border rounded p-1.5 h-12 resize-none" /></div>
+                        </div>
+
+                        {/* ✅ 已修复：去除了重复的按钮组 */}
+                        <div className="flex gap-2 justify-end">
+                           {cardForm.id && (
+                             <button onClick={clearCardForm} className="text-slate-400 hover:text-slate-600 text-xs mr-auto underline">
+                               取消编辑，新建空白卡片
+                             </button>
+                           )}
+                           
+                           <button onClick={saveCardToLibrary} className="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded-lg text-xs font-bold transition-colors">
+                             💾 {cardForm.id ? "覆盖更新原卡片" : "保存为新卡片"}
+                           </button>
+                           <button onClick={handleInjectRule} disabled={!cardForm.title} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 disabled:opacity-50 transition-colors">
+                             <Send size={14} /> 发送给该学生
+                           </button>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-200">
+                          <h4 className="text-xs font-bold text-slate-500 mb-3 flex items-center justify-between">
+                            📚 公共知识卡片库 
+                            <span className="font-normal text-[10px] text-slate-400">点击选中编辑/发送，悬停删除</span>
+                          </h4>
+                          
+                          {cardLibrary.length === 0 ? (
+                            <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">暂无公共卡片，提取后点击上方保存即可沉淀。</div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                              {cardLibrary.map(card => (
+                                <div 
+                                  key={card.id} 
+                                  onClick={() => selectFromLibrary(card)} 
+                                  className={`group relative p-2.5 border rounded-lg cursor-pointer transition-all bg-white ${
+                                    cardForm.id === card.id 
+                                      ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-500 shadow-sm' 
+                                      : 'border-slate-200 hover:border-brand-400 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <button 
+                                    onClick={(e) => handleDeleteCard(e, card.id)}
+                                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:bg-red-600 z-10"
+                                    title="永久删除"
+                                  >
+                                    <X size={10} strokeWidth={3} />
+                                  </button>
+
+                                  <div className="font-bold text-[11px] text-slate-800 truncate pr-2">{card.title}</div>
+                                  <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                                    <span className="bg-slate-100 px-1 rounded truncate max-w-[90px]">{card.industry || '通用行业'}</span>
+                                    {cardForm.id === card.id && <span className="text-brand-600 font-bold ml-auto text-[9px]">正在编辑</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -261,7 +448,6 @@ export default function StudentProfileView({ currentUser }) {
                   {evalReport && evalReport.capabilities ? (
                     <div className="space-y-6">
                       
-                      {/* 1. 核心能力量化打分（加入雷达图） */}
                       <div>
                         <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">📊 核心能力量化打分</h4>
                         
@@ -291,7 +477,6 @@ export default function StudentProfileView({ currentUser }) {
                         </div>
                       </div>
 
-                      {/* 2. 三轮对话行为诊断 */}
                       <div>
                         <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">🧠 阶段对话行为诊断</h4>
                         <div className="space-y-3">
@@ -304,7 +489,6 @@ export default function StudentProfileView({ currentUser }) {
                         </div>
                       </div>
 
-                      {/* 3. 核心证据溯源 */}
                       <div>
                         <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">🔎 核心证据溯源</h4>
                         <div className="space-y-3">

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, MessageSquare, Send, FileText, BookOpen, Briefcase, Trophy,
-  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize,Network, X
+  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize,Network, X, Tag, Target, Lightbulb, ShieldAlert
 } from 'lucide-react';
 import {
   API_BASE_URL, bindConversationFile, createConversation, fetchConversations,
@@ -1150,6 +1150,100 @@ export default function FreeChatView({ currentUser }) {
                                 {msg.text && (
                                   <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{msg.text}</p>
                                 )}
+
+                                {/* ====== 完全新增：专门用来渲染结构化案例卡片的区域 ====== */}
+                                {/* 如果 msg 里没有 cardData（即规则干预），这里就不会渲染，完美兼容旧版 */}
+                                {msg.cardData && (
+                                  <div className="mt-4 bg-white border border-emerald-200 rounded-xl overflow-hidden shadow-sm flex flex-col w-full">
+                                    
+                                    {/* 头部：标题与类型 (使用高级渐变色) */}
+                                    <div className="bg-gradient-to-r from-emerald-600 to-teal-500 px-4 py-3 flex items-start justify-between gap-4">
+                                      <span className="font-bold text-white text-[15px] leading-tight">
+                                         {msg.cardData.title}
+                                      </span>
+                                      <span className="text-[11px] bg-white/20 text-white px-2 py-0.5 rounded flex-shrink-0 border border-white/30 backdrop-blur-sm">
+                                        {msg.cardData.card_type || '案例'}
+                                      </span>
+                                    </div>
+
+                                    {/* 标签栏：行业、阶段、客群 */}
+                                    <div className="px-4 py-2.5 bg-emerald-50/50 border-b border-emerald-100 flex flex-wrap gap-2 text-xs">
+                                      {msg.cardData.industry && msg.cardData.industry !== '无' && (
+                                         <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                           🏭 行业: {msg.cardData.industry}
+                                         </span>
+                                      )}
+                                      {msg.cardData.applicable_stages && msg.cardData.applicable_stages !== '无' && (
+                                         <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                           📈 阶段: {msg.cardData.applicable_stages}
+                                         </span>
+                                      )}
+                                      {msg.cardData.target_customer && msg.cardData.target_customer !== '无' && (
+                                         <span className="bg-purple-50 text-purple-700 border border-purple-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                           🎯 客群: {msg.cardData.target_customer}
+                                         </span>
+                                      )}
+                                    </div>
+
+                                    {/* 主体内容区 */}
+                                    <div className="p-4 space-y-4">
+                                      
+                                      {/* 痛点与解决方案（左右并排对比视图） */}
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-sm">
+                                          <div className="font-bold text-red-800 mb-1.5 flex items-center gap-1 border-b border-red-200 pb-1">
+                                            🔴 核心痛点
+                                          </div>
+                                          <div className="text-red-900/80 leading-relaxed text-xs">
+                                            {msg.cardData.core_pain_point || msg.cardData.pain_point || '无'}
+                                          </div>
+                                        </div>
+                                        
+                                        <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 text-sm">
+                                          <div className="font-bold text-emerald-800 mb-1.5 flex items-center gap-1 border-b border-emerald-200 pb-1">
+                                            🟢 解决方案
+                                          </div>
+                                          <div className="text-emerald-900/80 leading-relaxed text-xs">
+                                            {msg.cardData.solution || '无'}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* 商业模式（如果有的话） */}
+                                      {msg.cardData.business_model && msg.cardData.business_model !== '无' && (
+                                        <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-sm">
+                                          <div className="font-bold text-indigo-800 mb-1.5 flex items-center gap-1">
+                                            💎 商业模式
+                                          </div>
+                                          <div className="text-indigo-900/80 leading-relaxed text-xs">
+                                            {msg.cardData.business_model}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* 证据链展示区（引言样式） */}
+                                      {msg.cardData.evidence_items && msg.cardData.evidence_items !== '无' && (
+                                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
+                                          <div className="font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                                            🔎 关键数据与证据
+                                          </div>
+                                          <div className="text-slate-600 text-xs italic border-l-2 border-slate-300 pl-2 leading-relaxed">
+                                            {msg.cardData.evidence_items}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* 底部关联规则 */}
+                                      {msg.cardData.covered_rule_ids && msg.cardData.covered_rule_ids !== '无' && (
+                                        <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-100 flex items-center justify-end gap-1">
+                                          🏷️ 关联规则: {msg.cardData.covered_rule_ids}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {/* ========================================================= */}
+
                                 {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
                                   <div className="mt-3 flex flex-wrap gap-2">
                                     {msg.attachments.map((file, idx) => (
