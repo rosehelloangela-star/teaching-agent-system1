@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, MessageSquare, Send, FileText, BookOpen, Briefcase, Trophy,
-  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize,Network
+  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize,Network, X
 } from 'lucide-react';
 import {
   API_BASE_URL, bindConversationFile, createConversation, fetchConversations,
@@ -50,6 +50,7 @@ function mapConversationFromApi(item) {
     messages: safeParseJSON(item.chat_history, []),
     documentStatus: item.document_status || 'none',
     boundFileName: item.bound_file_name || '',
+    boundDocumentText: item.bound_document_text || '', // <--- 新增这一行
     boundFileUploadedAt: item.bound_file_uploaded_at || '',
     analysisSnapshot: safeParseJSON(item.analysis_snapshot, {}),
     lastMode: item.last_mode || 'learning',
@@ -313,6 +314,50 @@ function TeacherAssessmentMessageCard({ msg }) {
   );
 }
 
+// --- 新增：文档预览抽屉组件 ---
+function DocumentViewerDrawer({ isOpen, onClose, title, content }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* 遮罩层，点击可关闭 */}
+      <div 
+        className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" 
+        onClick={onClose}
+      />
+      {/* 右侧滑出面板 */}
+      <div className="relative w-full max-w-lg h-full bg-white shadow-2xl flex flex-col border-l border-slate-200 animate-in slide-in-from-right duration-300">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText size={18} className="text-blue-600 shrink-0" />
+            <h3 className="font-bold text-slate-800 truncate text-sm">
+              {title || '文档预览'}
+            </h3>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 bg-white">
+          {content ? (
+            <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-serif">
+              {content}
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+              <FileText size={32} className="opacity-20" />
+              <p>暂无文档内容</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FreeChatView({ currentUser }) {
   const [conversations, setConversations] = useState([]);
   const conversationsRef = useRef([]);
@@ -328,6 +373,7 @@ export default function FreeChatView({ currentUser }) {
   const [loadingReply, setLoadingReply] = useState(false);
   const [snapshotOpen, setSnapshotOpen] = useState(false);    // 项目/竞赛分析面板
   const [kgOverlayOpen, setKgOverlayOpen] = useState(false);  // 学习模式知识图谱面板
+  const [docViewerOpen, setDocViewerOpen] = useState(false);  // <--- 新增：控制文档抽屉状态
   
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -480,6 +526,7 @@ export default function FreeChatView({ currentUser }) {
         documentStatus: response.document_status || 'bound',
         boundFileName: response.bound_file_name || '',
         boundFileUploadedAt: response.bound_file_uploaded_at || '',
+        boundDocumentText: response.bound_document_text || '', // <--- 新增这一行
         analysisSnapshot: safeParseJSON(response.analysis_snapshot, conv.analysisSnapshot || {}),
         messages: [
           ...conv.messages,
@@ -915,10 +962,16 @@ export default function FreeChatView({ currentUser }) {
                   <div className="min-w-0 flex items-center gap-2">
                     {hasBoundDocument ? (
                       <>
-                        <FileText size={15} className="text-blue-600 shrink-0" />
-                        <span className="text-sm text-blue-800 truncate font-medium">
-                          {activeConversation.boundFileName}
-                        </span>
+                        <button 
+                          onClick={() => setDocViewerOpen(true)}
+                          className="flex items-center gap-2 hover:bg-blue-100/50 px-2 py-1 -ml-2 rounded-lg transition-colors text-left"
+                          title="点击查看文档内容"
+                        >
+                          <FileText size={15} className="text-blue-600 shrink-0" />
+                          <span className="text-sm text-blue-800 truncate font-medium hover:underline cursor-pointer">
+                            {activeConversation.boundFileName}
+                          </span>
+                        </button>
                         <span className="text-xs text-blue-500 shrink-0">
                           {formatDateTime(activeConversation.boundFileUploadedAt)}
                         </span>
@@ -1003,6 +1056,13 @@ export default function FreeChatView({ currentUser }) {
                 open={kgOverlayOpen} 
                 kgContext={activeConversation?.kgContext} 
                 onClose={() => setKgOverlayOpen(false)} 
+              />
+
+              <DocumentViewerDrawer 
+                isOpen={docViewerOpen} 
+                onClose={() => setDocViewerOpen(false)} 
+                title={activeConversation.boundFileName}
+                content={activeConversation.boundDocumentText}
               />
             </div>
 

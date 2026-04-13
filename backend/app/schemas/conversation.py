@@ -25,6 +25,8 @@ class ConversationResponse(BaseModel):
 
     bound_file_name: Optional[str] = None
     bound_file_uploaded_at: Optional[datetime] = None
+    bound_document_text: str | None = None 
+    bound_file_uploaded_at: datetime | None = None
     document_status: str = "none"
 
     analysis_snapshot: str = "{}"
@@ -34,3 +36,9 @@ class ConversationResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class EvalUpdateRequest(BaseModel):
+    evaluation_report: str  # 接收前端传来的 JSON 字符串或文本
+
+class ClassReportRequest(BaseModel):
+    report_content: str     # 接收前端传来的班级报告内容

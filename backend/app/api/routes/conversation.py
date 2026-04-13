@@ -71,6 +71,8 @@ def _build_teacher_summary(conversation: Conversation, student: User) -> dict:
         "chat_history": conversation.chat_history,
         "bound_file_name": conversation.bound_file_name,
         "bound_file_uploaded_at": conversation.bound_file_uploaded_at,
+        "bound_document_text": conversation.bound_document_text, 
+        "bound_file_uploaded_at": conversation.bound_file_uploaded_at,
         "document_status": conversation.document_status,
         "analysis_snapshot": conversation.analysis_snapshot,
         "last_mode": conversation.last_mode,
