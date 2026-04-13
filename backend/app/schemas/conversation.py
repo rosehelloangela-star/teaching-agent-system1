@@ -29,8 +29,18 @@ class ConversationResponse(BaseModel):
 
     analysis_snapshot: str = "{}"
     last_mode: str = "learning"
+    
+    # 【新增字段】：用于返回已保存的学生画像报告
+    evaluation_report: Optional[str] = None 
 
     created_at: datetime
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+# 【新增模型】：用于保存画像和班级报告的请求体
+class EvalUpdateRequest(BaseModel):
+    evaluation_report: str
+
+class ClassReportRequest(BaseModel):
+    report_content: str

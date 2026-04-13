@@ -116,21 +116,30 @@ class Conversation(Base):
     id = Column(String, primary_key=True, default=generate_conversation_uuid, index=True)
     student_id = Column(String, index=True, nullable=False)
 
-    # 左侧会话列表标题
     title = Column(String, nullable=False, default="新对话")
-
-    # 整个聊天框的消息历史，先继续用 JSON 字符串，便于与你现有前端结构兼容
     chat_history = Column(Text, nullable=False, default="[]")
 
-    # 绑定文档信息（红框区域）
     bound_file_name = Column(String, nullable=True)
     bound_file_uploaded_at = Column(DateTime(timezone=True), nullable=True)
     bound_document_text = Column(Text, nullable=True)
-    document_status = Column(String, nullable=False, default="none")  # none / bound
+    document_status = Column(String, nullable=False, default="none") 
 
-    # 下拉分析面板快照（黄框区域）
     analysis_snapshot = Column(Text, nullable=False, default="{}")
     last_mode = Column(String, nullable=False, default="learning")
+    
+    # 【新增字段】：用于持久化存储该会话的学生画像评估报告
+    evaluation_report = Column(Text, nullable=True) 
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+# ================= 4. 班级报告表（新增） =================
+# 用于持久化存储 Agent 生成的班级学情综合诊断报告
+class ClassReport(Base):
+    __tablename__ = "class_reports"
+
+    id = Column(String, primary_key=True, default=lambda: f"cr_{uuid.uuid4().hex[:8]}", index=True)
+    class_name = Column(String, unique=True, index=True, nullable=False)
+    report_content = Column(Text, nullable=True) # 存放 JSON 字符串
+    
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

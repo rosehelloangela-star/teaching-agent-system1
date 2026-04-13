@@ -239,7 +239,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart3, Lightbulb, Loader2, Send, Users, Trophy, Target, ShieldAlert, Bot, BookOpen, AlertTriangle } from 'lucide-react';
-import { runAgent, fetchClassInsights } from '../api';
+import { runAgent, fetchClassInsights, fetchClassReport, saveClassReport } from '../api';
 
 export default function ClassInsightsView({ currentUser }) {
   const [selectedClass, setSelectedClass] = useState('');
@@ -258,6 +258,27 @@ export default function ClassInsightsView({ currentUser }) {
   useEffect(() => {
     if (assignedClasses.length === 1 && !selectedClass) setSelectedClass(assignedClasses[0]);
   }, [assignedClasses, selectedClass]);
+
+  useEffect(() => {
+    async function loadSavedClassReport() {
+      if (!selectedClass) {
+        setAgentResult(null);
+        return;
+      }
+      try {
+        const res = await fetchClassReport(selectedClass);
+        if (res && res.report_content) {
+          // 如果后端存了，直接渲染
+          setAgentResult(JSON.parse(res.report_content));
+        } else {
+          setAgentResult(null);
+        }
+      } catch (e) {
+        console.error("加载历史班级诊断失败", e);
+      }
+    }
+    loadSavedClassReport();
+  }, [selectedClass]);
 
   const activeCompetitionList = useMemo(() => {
     if (!insightsData?.competitions || !activeCompTab) return [];
@@ -303,6 +324,10 @@ export default function ClassInsightsView({ currentUser }) {
 
       const data = await runAgent(summaryText, 'instructor', `class_eval_${selectedClass}`);
       setAgentResult(data.generated_content);
+      
+      // 【修改点】：生成成功后，静默存入数据库
+      await saveClassReport(selectedClass, data.generated_content);
+
     } catch (e) {
       alert('AI 生成失败，请稍后重试。');
     } finally {

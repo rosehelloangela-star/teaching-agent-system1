@@ -13,6 +13,7 @@ import {
   fetchTeacherConversationDetail,
   runAgent,
   syncConversationState,
+  saveConversationEvaluation // <--- 新增
 } from '../api';
 
 function safeParseJSON(raw, fallback) {
@@ -104,7 +105,12 @@ export default function StudentProfileView({ currentUser }) {
       try {
         const data = await fetchTeacherConversationDetail(selectedConvId, currentUser.id);
         setDetail(data);
-        setEvalReport(null);
+        // 【修改点】：如果有已保存的报告，直接反序列化显示
+        if (data.evaluation_report) {
+          setEvalReport(safeParseJSON(data.evaluation_report, null));
+        } else {
+          setEvalReport(null);
+        }
       } catch (error) {
         console.error('加载会话详情失败', error);
       } finally {
@@ -145,6 +151,10 @@ export default function StudentProfileView({ currentUser }) {
       
       const data = await runAgent(prompt, 'profile_evaluator', `eval_thread_${detail.id}`, [], detail.id);
       setEvalReport(data.generated_content);
+
+      // 【修改点】：生成成功后，静默保存到数据库
+      await saveConversationEvaluation(detail.id, data.generated_content);
+      
     } catch (error) {
       console.error(error);
       alert('评估报告生成失败，请检查网络或后端 Agent 日志。');
@@ -152,7 +162,6 @@ export default function StudentProfileView({ currentUser }) {
       setEvalLoading(false);
     }
   };
-
   const isCurrentConvCompleted = activeStudent?.completed_conversations.some(c => c.id === selectedConvId);
 
   return (

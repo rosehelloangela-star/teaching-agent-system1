@@ -370,3 +370,41 @@ export const fetchClassInsights = async (className) => {
   return response.data;
 };
 
+
+/* =========================
+   Report Persistence APIs
+========================= */
+
+export const saveConversationEvaluation = async (conversationId, reportData) => {
+  try {
+    const response = await api.put(`/conversations/${conversationId}/evaluation`, {
+      evaluation_report: typeof reportData === 'string' ? reportData : JSON.stringify(reportData)
+    });
+    return response.data;
+  } catch (error) {
+    console.error('保存画像评估失败:', error);
+    throw error;
+  }
+};
+
+export const fetchClassReport = async (className) => {
+  try {
+    const response = await api.get(`/conversations/class-reports/${className}`);
+    return response.data;
+  } catch (error) {
+    console.error('拉取班级诊断报告失败:', error);
+    throw error;
+  }
+};
+
+export const saveClassReport = async (className, reportData) => {
+  try {
+    const response = await api.put(`/conversations/class-reports/${className}`, {
+      report_content: typeof reportData === 'string' ? reportData : JSON.stringify(reportData)
+    });
+    return response.data;
+  } catch (error) {
+    console.error('保存班级诊断报告失败:', error);
+    throw error;
+  }
+};

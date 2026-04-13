@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.core.file_utils import ATTACHMENT_ROOT, extract_file_payload, save_teacher_attachment
 from app.db.database import get_db
-from app.db.models import Conversation, User
+from app.db.models import Conversation, User, ClassReport
 from app.schemas.conversation import (
     ConversationCreateRequest,
     ConversationResponse,
     ConversationStateSyncRequest,
+    EvalUpdateRequest,      # <--- 新增引入
+    ClassReportRequest      # <--- 新增引入
 )
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -72,6 +74,7 @@ def _build_teacher_summary(conversation: Conversation, student: User) -> dict:
         "document_status": conversation.document_status,
         "analysis_snapshot": conversation.analysis_snapshot,
         "last_mode": conversation.last_mode,
+        "evaluation_report": conversation.evaluation_report, # <--- 新增这行，返回画像报告
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
         "teacher_message_count": len(
@@ -261,3 +264,40 @@ def sync_conversation_state(
     db.commit()
     db.refresh(conversation)
     return conversation
+
+# ==========================================
+# 报告持久化接口 (学生画像 & 班级学情)
+# ==========================================
+
+@router.put("/{conversation_id}/evaluation")
+def update_conversation_evaluation(
+    conversation_id: str, 
+    request: EvalUpdateRequest, 
+    db: Session = Depends(get_db)
+):
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    conversation.evaluation_report = request.evaluation_report
+    db.commit()
+    return {"status": "success"}
+
+@router.get("/class-reports/{class_name}")
+def get_class_report(class_name: str, db: Session = Depends(get_db)):
+    report = db.query(ClassReport).filter(ClassReport.class_name == class_name).first()
+    return {"report_content": report.report_content if report else None}
+
+@router.put("/class-reports/{class_name}")
+def save_class_report(
+    class_name: str, 
+    request: ClassReportRequest, 
+    db: Session = Depends(get_db)
+):
+    report = db.query(ClassReport).filter(ClassReport.class_name == class_name).first()
+    if not report:
+        report = ClassReport(class_name=class_name, report_content=request.report_content)
+        db.add(report)
+    else:
+        report.report_content = request.report_content
+    db.commit()
+    return {"status": "success"}
