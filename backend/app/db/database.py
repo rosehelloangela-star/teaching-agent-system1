@@ -2,21 +2,22 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 
-# 数据库文件的存放路径，会在 backend 根目录下生成一个 teaching_agent.db 文件
-SQLALCHEMY_DATABASE_URL = "sqlite:///./teaching_agent.db"
+# 1. 确保目录存在（防止启动时报错）
+db_dir = "./app/data"
+if not os.path.exists(db_dir):
+    os.makedirs(db_dir, exist_ok=True)
 
-# 创建数据库引擎 (check_same_thread=False 是 SQLite 在 FastAPI 中使用的特殊配置)
+# 2. 修改路径：将数据库放在这个目录下
+# 注意：这里的 ./app/data/ 对应容器内部的路径
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{db_dir}/teaching_agent.db"
+
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
 
-# 创建数据库会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# 声明基类，后面所有的数据库模型（表）都要继承这个基类
 Base = declarative_base()
 
-# 依赖注入函数：每次有 API 请求时，帮我们打开数据库连接，请求结束自动关闭
 def get_db():
     db = SessionLocal()
     try:

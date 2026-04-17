@@ -14,6 +14,7 @@ class ConversationStateSyncRequest(BaseModel):
     analysis_snapshot: Optional[str] = None
     title: Optional[str] = None
     last_mode: Optional[str] = None
+    kg_context: Optional[str] = None
 
 
 class ConversationResponse(BaseModel):
@@ -24,7 +25,6 @@ class ConversationResponse(BaseModel):
     chat_history: str = "[]"
 
     bound_file_name: Optional[str] = None
-    bound_file_uploaded_at: Optional[datetime] = None
     bound_document_text: str | None = None 
     bound_file_uploaded_at: datetime | None = None
     document_status: str = "none"
@@ -34,6 +34,7 @@ class ConversationResponse(BaseModel):
 
     created_at: datetime
     updated_at: Optional[datetime] = None
+    kg_context: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

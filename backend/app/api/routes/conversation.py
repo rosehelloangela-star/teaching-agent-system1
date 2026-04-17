@@ -340,6 +340,9 @@ def sync_conversation_state(
     if request.last_mode is not None:
         conversation.last_mode = request.last_mode
 
+    if request.kg_context is not None:
+        conversation.kg_context = request.kg_context
+
     db.commit()
     db.refresh(conversation)
     return conversation

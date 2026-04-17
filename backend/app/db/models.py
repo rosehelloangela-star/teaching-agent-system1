@@ -126,6 +126,7 @@ class Conversation(Base):
 
     analysis_snapshot = Column(Text, nullable=False, default="{}")
     last_mode = Column(String, nullable=False, default="learning")
+    kg_context = Column(Text, nullable=True)
     
     # 【新增字段】：用于持久化存储该会话的学生画像评估报告
     evaluation_report = Column(Text, nullable=True) 

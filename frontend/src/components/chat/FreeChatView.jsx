@@ -43,6 +43,8 @@ function deriveConversationTitle(text) {
 }
 
 function mapConversationFromApi(item) {
+  const analysisSnapshot = safeParseJSON(item.analysis_snapshot, {});
+
   return {
     id: item.id,
     studentId: item.student_id,
@@ -50,13 +52,15 @@ function mapConversationFromApi(item) {
     messages: safeParseJSON(item.chat_history, []),
     documentStatus: item.document_status || 'none',
     boundFileName: item.bound_file_name || '',
-    boundDocumentText: item.bound_document_text || '', // <--- 新增这一行
+    boundDocumentText: item.bound_document_text || '', 
     boundFileUploadedAt: item.bound_file_uploaded_at || '',
-    analysisSnapshot: safeParseJSON(item.analysis_snapshot, {}),
+    analysisSnapshot,
     lastMode: item.last_mode || 'learning',
     createdAt: item.created_at || '',
     updatedAt: item.updated_at || '',
     threadId: item.id,
+    
+    // ✅ 核心修复：彻底抛弃旧版的嵌套逻辑覆盖，直接读取从数据库拿出来的真实字段！
     kgContext: safeParseJSON(item.kg_context, null),
   };
 }
@@ -416,7 +420,8 @@ export default function FreeChatView({ currentUser }) {
         nextConversation.messages,
         nextConversation.analysisSnapshot || {},
         nextConversation.title,
-        nextConversation.lastMode || activeMode
+        nextConversation.lastMode || activeMode,
+        nextConversation.kgContext || null
       );
     }
   };
@@ -496,14 +501,15 @@ export default function FreeChatView({ currentUser }) {
     }
   };
 
-  const persistConversation = async (conversationId, messages, analysisSnapshot, title, lastMode) => {
+  const persistConversation = async (conversationId, messages, analysisSnapshot, title, lastMode, kgContext) => {
     try {
       await syncConversationState(
         conversationId,
         sanitizeMessagesForSave(messages),
         analysisSnapshot,
         title,
-        lastMode
+        lastMode,
+        kgContext
       );
     } catch (e) {
       console.error('会话持久化失败:', e);
@@ -544,7 +550,8 @@ export default function FreeChatView({ currentUser }) {
           updatedConversation.messages,
           updatedConversation.analysisSnapshot,
           updatedConversation.title,
-          'learning'
+          'learning',
+          updatedConversation.kgContext || null
         );
       }
 
@@ -637,7 +644,8 @@ export default function FreeChatView({ currentUser }) {
         draftConversation.messages,
         draftConversation.analysisSnapshot || {},
         draftConversation.title,
-        activeMode
+        activeMode,
+        draftConversation.kgContext || null
       );
     }
 
@@ -660,7 +668,7 @@ export default function FreeChatView({ currentUser }) {
                 if (event.meta.phase === 'kg_subgraph_result') {
                   console.log("🎯 成功拦截到知识图谱数据包:", event.meta);
                   // 如果命中，直接把 meta 里的三元组画出来
-                  applyConversationUpdate(conversationId, (conv) => ({
+                  const nextConversation = applyConversationUpdate(conversationId, (conv) => ({
                     ...conv,
                     kgContext: {
                       hit_nodes: event.meta.hit_nodes || [],
@@ -670,10 +678,20 @@ export default function FreeChatView({ currentUser }) {
                 } else if (event.meta.phase === 'kg_no_hit') {
                   console.log("🎯 本轮未命中图谱，清空旧数据");
                   // 如果本轮没命中，清空上一轮的图谱
-                  applyConversationUpdate(conversationId, (conv) => ({
+                  const nextConversation = applyConversationUpdate(conversationId, (conv) => ({
                     ...conv,
                     kgContext: { hit_nodes: [], triples: [] }
                   }));
+                  if (nextConversation) {
+                    await persistConversation(
+                      conversationId,
+                      nextConversation.messages,
+                      nextConversation.analysisSnapshot || {},
+                      nextConversation.title,
+                      nextConversation.lastMode || activeMode,
+                      nextConversation.kgContext || null
+                    );
+                  }
                 }
               }
 
@@ -740,7 +758,8 @@ export default function FreeChatView({ currentUser }) {
                 updatedConversation.messages,
                 updatedConversation.analysisSnapshot,
                 updatedConversation.title,
-                activeMode
+                activeMode,
+                updatedConversation.kgContext || null
               );
             }
             if (activeMode === 'project' || activeMode === 'competition') {
@@ -774,7 +793,8 @@ export default function FreeChatView({ currentUser }) {
                 updatedConversation.messages,
                 updatedConversation.analysisSnapshot || {},
                 updatedConversation.title,
-                activeMode
+                activeMode,
+                updatedConversation.kgContext || null
               );
             }
           }
@@ -810,7 +830,8 @@ export default function FreeChatView({ currentUser }) {
           updatedConversation.messages,
           updatedConversation.analysisSnapshot || {},
           updatedConversation.title,
-          activeMode
+          activeMode,
+          updatedConversation.kgContext || null
         );
       }
     } finally {

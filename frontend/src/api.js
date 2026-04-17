@@ -178,7 +178,8 @@ export const syncConversationState = async (
   chatHistoryArray,
   analysisSnapshot = null,
   title = null,
-  lastMode = null
+  lastMode = null,
+  kgContext = null
 ) => {
   const payload = {
     chat_history: JSON.stringify(chatHistoryArray),
@@ -193,6 +194,13 @@ export const syncConversationState = async (
 
   if (title !== null) payload.title = title;
   if (lastMode !== null) payload.last_mode = lastMode;
+  if (kgContext !== null) {
+    payload.kg_context =
+      typeof kgContext === 'string'
+        ? kgContext
+        : JSON.stringify(kgContext);
+  }
+
 
   try {
     const response = await api.put(`/conversations/${conversationId}/state`, payload);
