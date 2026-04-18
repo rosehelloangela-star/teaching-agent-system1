@@ -257,15 +257,108 @@
 
 #     previous_stages = previous_stage_flow.get("stages") or {}
 
+#     # 顺序闯关：每一轮只允许评估一个“当前阶段”。
+#     # 如果上一轮刚好完成，则通过 next_stage_index 在下一轮再进入下一阶段。
+#     pending_next_stage_index = int(previous_stage_flow.get("next_stage_index") or 0)
+
+#     is_force_completed = previous_stage_flow.get("overall_status") == "completed" or pending_next_stage_index > len(PROJECT_STAGE_DEFINITIONS)
+    
+#     if previous_stage_flow.get("overall_status") == "completed":
+#         evaluation_stage_index = len(PROJECT_STAGE_DEFINITIONS)
+#     elif pending_next_stage_index:
+#         evaluation_stage_index = pending_next_stage_index
+#     else:
+#         evaluation_stage_index = int(previous_stage_flow.get("current_stage_index") or previous_stage_index or 1)
+#     evaluation_stage_index = max(1, min(evaluation_stage_index, len(PROJECT_STAGE_DEFINITIONS)))
+
+#     def _make_base_stage(stage_def: Dict[str, Any], previous_stage: Dict[str, Any] | None) -> Dict[str, Any]:
+#         previous_stage = previous_stage or {}
+#         rule_ids = list(stage_def.get("rule_ids", []))
+#         return {
+#             "id": stage_def["id"],
+#             "index": stage_def["index"],
+#             "label": stage_def["label"],
+#             "short_label": stage_def.get("short_label", stage_def["label"]),
+#             "subtitle": stage_def.get("subtitle", ''),
+#             "goal": stage_def.get("goal", ''),
+#             "coach_hint": stage_def.get("coach_hint", ''),
+#             "status": previous_stage.get("status", "locked"),
+#             "progress_pct": int(previous_stage.get("progress_pct", 0) or 0),
+#             "pass_threshold": stage_def.get("pass_threshold", 80),
+#             "rule_ids": rule_ids,
+#             "active_rule_ids": list(previous_stage.get("active_rule_ids", []) or []),
+#             "resolved_rule_ids": list(previous_stage.get("resolved_rule_ids", []) or []),
+#             "critical_unresolved": list(previous_stage.get("critical_unresolved", []) or []),
+#             "active_alerts": list(previous_stage.get("active_alerts", []) or []),
+#             "sticky_reopened_alerts": list(previous_stage.get("sticky_reopened_alerts", []) or []),
+#             "sticky_reopened_rule_ids": list(previous_stage.get("sticky_reopened_rule_ids", []) or []),
+#             "reopened_rule_counts": dict(previous_stage.get("reopened_rule_counts", {}) or {}),
+#             "followup_questions": list(previous_stage.get("followup_questions", []) or []),
+#             "score_breakdown": dict(previous_stage.get("score_breakdown", {}) or {}),
+#             "anchor_status": dict(previous_stage.get("anchor_status", {}) or {}),
+#             "can_advance": bool(previous_stage.get("can_advance", False)),
+#             "blocked_reasons": list(previous_stage.get("blocked_reasons", []) or []),
+#             "advance_rule_text": previous_stage.get("advance_rule_text") or f"进度≥{int(stage_def.get('pass_threshold', 80))}% + 关键高危规则控制在允许范围内 + 结构锚点达到要求",
+#             "memory_applied": bool(previous_stage),
+#         }
+
 #     stage_results: List[Dict[str, Any]] = []
-#     computed_unpassed_stage_index = None
+#     evaluated_stage_result: Dict[str, Any] | None = None
 
 #     for stage in PROJECT_STAGE_DEFINITIONS:
 #         stage_id = stage["id"]
+#         stage_index = int(stage["index"])
 #         previous_stage = previous_stages.get(stage_id) or {}
-#         previously_passed = previous_stage.get("status") == "passed"
-
 #         rule_ids = list(stage.get("rule_ids", []))
+
+#         if stage_index < evaluation_stage_index:
+#             stage_block = _make_base_stage(stage, previous_stage)
+#             stage_block.update(
+#                 {
+#                     "status": "passed",
+#                     "progress_pct": max(int(stage_block.get("progress_pct", 0) or 0), int(stage.get("pass_threshold", 80))),
+#                     "active_rule_ids": [],
+#                     "active_alerts": [],
+#                     "critical_unresolved": [],
+#                     "sticky_reopened_alerts": [],
+#                     "sticky_reopened_rule_ids": [],
+#                     "followup_questions": [],
+#                     "can_advance": True,
+#                     "blocked_reasons": [],
+#                 }
+#             )
+#             if not stage_block.get("resolved_rule_ids"):
+#                 stage_block["resolved_rule_ids"] = list(rule_ids)
+#             if not stage_block.get("anchor_status"):
+#                 stage_block["anchor_status"] = {
+#                     "passed": True,
+#                     "groups": [],
+#                     "missing_labels": [],
+#                     "passed_group_count": len(stage.get("anchor_groups", [])),
+#                     "required_group_count": int(stage.get("anchor_min_groups", len(stage.get("anchor_groups", [])) if stage.get("anchor_groups") else 0)),
+#                 }
+#             stage_results.append(stage_block)
+#             continue
+
+#         if stage_index > evaluation_stage_index:
+#             stage_block = _make_base_stage(stage, previous_stage)
+#             stage_block.update(
+#                 {
+#                     "status": "locked",
+#                     # 未解锁阶段不使用本轮文本重新打分，避免在第一阶段直接把第二、三阶段也“提前通关”。
+#                     "progress_pct": int(previous_stage.get("progress_pct", 0) or 0),
+#                     "active_rule_ids": list(previous_stage.get("active_rule_ids", []) or []),
+#                     "active_alerts": list(previous_stage.get("active_alerts", []) or []),
+#                     "critical_unresolved": list(previous_stage.get("critical_unresolved", []) or []),
+#                     "followup_questions": list(previous_stage.get("followup_questions", []) or []),
+#                     "can_advance": False,
+#                     "blocked_reasons": list(previous_stage.get("blocked_reasons", []) or []),
+#                 }
+#             )
+#             stage_results.append(stage_block)
+#             continue
+
+#         # 仅评估当前阶段
 #         active_alerts_raw = [alert_map[rule_id] for rule_id in rule_ids if rule_id in alert_map]
 #         previous_resolved_rule_ids = set(previous_stage.get("resolved_rule_ids", []) or [])
 #         previous_reopened_rule_counts = previous_stage.get("reopened_rule_counts") or {}
@@ -328,104 +421,112 @@
 #             max_critical_carryover=int(stage.get("max_critical_carryover", 0)),
 #         )
 
-#         passed = previously_passed or not blockers
-#         if computed_unpassed_stage_index is None and not passed:
-#             computed_unpassed_stage_index = int(stage["index"])
+#         passed = not blockers
+#         followup_questions = select_project_followup_questions(active_alerts, source_text=source_text, max_questions=3) if not passed else []
+#         stage_block = {
+#             "id": stage_id,
+#             "index": stage["index"],
+#             "label": stage["label"],
+#             "short_label": stage.get("short_label", stage["label"]),
+#             "subtitle": stage.get("subtitle", ''),
+#             "goal": stage.get("goal", ''),
+#             "coach_hint": stage.get("coach_hint", ''),
+#             "status": "passed" if passed else "current",
+#             "progress_pct": progress_pct,
+#             "pass_threshold": stage.get("pass_threshold", 80),
+#             "rule_ids": rule_ids,
+#             "active_rule_ids": unresolved_rule_ids,
+#             "resolved_rule_ids": resolved_rule_ids,
+#             "critical_unresolved": critical_unresolved,
+#             "active_alerts": [] if passed else active_alerts,
+#             "sticky_reopened_alerts": sticky_reopened_alerts,
+#             "sticky_reopened_rule_ids": _normalize_rule_ids(
+#                 [alert.get("rule") for alert in sticky_reopened_alerts if alert.get("rule")],
+#                 rule_ids,
+#             ),
+#             "reopened_rule_counts": reopened_rule_counts,
+#             "followup_questions": followup_questions,
+#             "score_breakdown": {
+#                 "total_weight": total_weight,
+#                 "resolved_weight": resolved_weight,
+#                 "unresolved_weight": unresolved_weight,
+#                 "evidence_bonus": _stage_progress_bonus(stage_id, evidence_signals),
+#             },
+#             "anchor_status": anchor_status,
+#             "can_advance": not blockers,
+#             "blocked_reasons": blockers,
+#             "advance_rule_text": f"进度≥{int(stage.get('pass_threshold', 80))}% + 关键高危规则控制在允许范围内 + 结构锚点达到要求",
+#             "memory_applied": bool(previous_stage),
+#         }
+#         stage_results.append(stage_block)
+#         evaluated_stage_result = stage_block
 
-#         followup_questions = select_project_followup_questions(active_alerts, source_text=source_text, max_questions=3)
-#         stage_results.append(
-#             {
-#                 "id": stage_id,
-#                 "index": stage["index"],
-#                 "label": stage["label"],
-#                 "short_label": stage.get("short_label", stage["label"]),
-#                 "subtitle": stage.get("subtitle", ''),
-#                 "goal": stage.get("goal", ''),
-#                 "coach_hint": stage.get("coach_hint", ''),
-#                 "status": "passed" if passed else "locked",
-#                 "progress_pct": progress_pct,
-#                 "pass_threshold": stage.get("pass_threshold", 80),
-#                 "rule_ids": rule_ids,
-#                 "active_rule_ids": unresolved_rule_ids,
-#                 "resolved_rule_ids": resolved_rule_ids,
-#                 "critical_unresolved": critical_unresolved,
-#                 "active_alerts": active_alerts,
-#                 "sticky_reopened_alerts": sticky_reopened_alerts,
-#                 "sticky_reopened_rule_ids": _normalize_rule_ids(
-#                     [alert.get("rule") for alert in sticky_reopened_alerts if alert.get("rule")],
-#                     rule_ids,
-#                 ),
-#                 "reopened_rule_counts": reopened_rule_counts,
-#                 "followup_questions": followup_questions,
-#                 "score_breakdown": {
-#                     "total_weight": total_weight,
-#                     "resolved_weight": resolved_weight,
-#                     "unresolved_weight": unresolved_weight,
-#                     "evidence_bonus": _stage_progress_bonus(stage_id, evidence_signals),
-#                 },
-#                 "anchor_status": anchor_status,
-#                 "can_advance": not blockers,
-#                 "blocked_reasons": blockers,
-#                 "advance_rule_text": f"进度≥{int(stage.get('pass_threshold', 80))}% + 关键高危规则控制在允许范围内 + 结构锚点达到要求",
-#                 "memory_applied": bool(previous_stage),
-#             }
-#         )
+#     if evaluated_stage_result is None:
+#         evaluated_stage_result = stage_results[-1]
 
-#     if computed_unpassed_stage_index is None:
-#         computed_unpassed_stage_index = len(PROJECT_STAGE_DEFINITIONS)
+#     current_stage_index = evaluation_stage_index
+#     current_stage_def = PROJECT_STAGE_DEFINITIONS[current_stage_index - 1]
+#     current_stage_passed = evaluated_stage_result.get("status") == "passed"
 
-#     current_stage_index = max(previous_stage_index, computed_unpassed_stage_index)
-#     current_stage_index = min(current_stage_index, len(PROJECT_STAGE_DEFINITIONS))
+#     # 新增：判断上一轮的上一阶段是否已经自然通关
+#     prev_stage_was_passed_last_turn = previous_stages.get(previous_stage_id, {}).get("status") == "passed"
+    
+#     # 修正精算：强制跳跃的判定标准 -> 当前阶段大于历史阶段，且历史阶段在上一次并没有自然通关
+#     is_forced_jump = current_stage_index > previous_stage_index and not prev_stage_was_passed_last_turn
+#     just_upgraded = current_stage_passed
 
-#     just_upgraded = current_stage_index > previous_stage_index
-#     all_passed = all(stage["status"] == "passed" for stage in stage_results)
-#     if all_passed:
-#         overall_status = "completed"
-#         current_stage_index = len(PROJECT_STAGE_DEFINITIONS)
-#     else:
-#         overall_status = "in_progress"
+#     next_stage_index = None
+#     next_stage_label = None
+#     overall_status = "completed" if (current_stage_passed and current_stage_index == len(PROJECT_STAGE_DEFINITIONS)) else "in_progress"
+
+#     if current_stage_passed and current_stage_index < len(PROJECT_STAGE_DEFINITIONS):
+#         next_stage_index = current_stage_index + 1
+#         next_stage_label = PROJECT_STAGE_DEFINITIONS[next_stage_index - 1]["label"]
 
 #     normalized_stage_results: Dict[str, Dict[str, Any]] = {}
-#     current_stage = None
 #     for stage in stage_results:
 #         stage_index = int(stage["index"])
 #         if stage_index < current_stage_index:
 #             stage["status"] = "passed"
 #         elif stage_index == current_stage_index:
-#             stage["status"] = "current" if overall_status != 'completed' else 'passed'
-#             current_stage = stage
+#             stage["status"] = "passed" if current_stage_passed else "current"
 #         else:
 #             stage["status"] = "locked"
 #         normalized_stage_results[stage["id"]] = stage
 
-#     if current_stage is None:
-#         current_stage = stage_results[-1]
+#     if just_upgraded:
+#         milestone_message = current_stage_def.get("milestone_message", '')
+#     elif is_forced_jump:
+#         skipped_stage_def = PROJECT_STAGE_DEFINITIONS[previous_stage_index - 1]
+#         milestone_message = f"【系统提示：教师已强制调控流转至“{current_stage_def.get('label')}”】上一阶段未达标规则已作豁免处理。"
+#     else:
+#         milestone_message = ""
 
-#     stage_def = next(stage for stage in PROJECT_STAGE_DEFINITIONS if int(stage["index"]) == current_stage_index)
-#     milestone_message = stage_def.get("milestone_message", '') if just_upgraded else ''
-#     current_stage_alerts = list(current_stage.get("active_alerts", []))
-#     current_followup_questions = list(current_stage.get("followup_questions", []))
-#     guardrail_rule_ids = list(stage_def.get("guardrail_rule_ids", []))
+#     current_stage_alerts = list(evaluated_stage_result.get("active_alerts", []))
+#     current_followup_questions = list(evaluated_stage_result.get("followup_questions", []))
+#     guardrail_rule_ids = list(current_stage_def.get("guardrail_rule_ids", []))
 #     guardrail_alerts = [alert_map[rule_id] for rule_id in guardrail_rule_ids if rule_id in alert_map]
 
-#     blockers = list(current_stage.get("blocked_reasons", []))
+#     blockers = list(evaluated_stage_result.get("blocked_reasons", []))
 #     stage_progress_summary = {
-#         "resolved_rules": len(current_stage.get("resolved_rule_ids", [])),
-#         "total_rules": len(current_stage.get("rule_ids", [])),
-#         "critical_remaining": len(current_stage.get("critical_unresolved", [])),
-#         "sticky_watchlist": len(current_stage.get("sticky_reopened_rule_ids", [])),
+#         "resolved_rules": len(evaluated_stage_result.get("resolved_rule_ids", [])),
+#         "total_rules": len(evaluated_stage_result.get("rule_ids", [])),
+#         "critical_remaining": len(evaluated_stage_result.get("critical_unresolved", [])),
+#         "sticky_watchlist": len(evaluated_stage_result.get("sticky_reopened_rule_ids", [])),
 #         "blocked_reason_count": len(blockers),
 #         "can_advance": not blockers,
 #     }
 
 #     return {
-#         "current_stage_id": current_stage["id"],
-#         "current_stage_label": current_stage["label"],
-#         "current_stage_index": current_stage["index"],
+#         "current_stage_id": evaluated_stage_result["id"],
+#         "current_stage_label": evaluated_stage_result["label"],
+#         "current_stage_index": evaluated_stage_result["index"],
+#         "next_stage_index": next_stage_index,
+#         "next_stage_label": next_stage_label,
 #         "overall_status": overall_status,
 #         "just_upgraded": just_upgraded,
 #         "milestone_message": milestone_message,
-#         "current_stage_entry_message": stage_def.get("entry_message", ''),
+#         "current_stage_entry_message": current_stage_def.get("entry_message", ''),
 #         "global_guardrail_rule_ids": guardrail_rule_ids,
 #         "current_stage_alerts": current_stage_alerts,
 #         "current_followup_questions": current_followup_questions,
@@ -433,9 +534,9 @@
 #         "stage_progress_summary": stage_progress_summary,
 #         "current_stage_gate": {
 #             "ready": not blockers,
-#             "advance_rule_text": current_stage.get("advance_rule_text", ''),
+#             "advance_rule_text": evaluated_stage_result.get("advance_rule_text", ''),
 #             "blocked_reasons": blockers,
-#             "max_critical_carryover": int(stage_def.get("max_critical_carryover", 0)),
+#             "max_critical_carryover": int(current_stage_def.get("max_critical_carryover", 0)),
 #         },
 #         "all_triggered_rule_ids": [alert.get("rule") for alert in alerts if alert.get("rule")],
 #         "all_standard_keys": sorted(current_standard_keys),
@@ -444,6 +545,7 @@
 #         "all_extracted_nodes": flat_nodes,
 #         "stages": normalized_stage_results,
 #     }
+
 
 
 

@@ -11,6 +11,8 @@
 # from app.hypergraph.entity_matcher import detect_hyper_nodes
 # from app.hypergraph.extractor import extract_hyperedges_from_text
 # from app.hypergraph.hyper_engine import HypergraphEngine
+# from app.hypergraph.semantic_guard import evaluate_hyperedge_semantics, build_stage_semantic_report, build_blocking_semantic_alerts, build_structural_field_notes
+# from app.hypergraph.stage_config import PROJECT_STAGE_DEFINITIONS
 # from app.hypergraph.stage_manager import build_project_stage_flow
 # from app.kg.entity_matcher import detect_concepts
 # from app.kg.graph_store import kg_store
@@ -153,6 +155,49 @@
 #     return (raw_analysis or "").strip() + "\n" + "\n".join(addon_lines)
 
 
+# def _build_semantic_context_text(semantic_report: Dict[str, object]) -> str:
+#     if not semantic_report:
+#         return ""
+
+#     summary = semantic_report.get("summary") or {}
+#     checks = list(semantic_report.get("checks") or [])
+#     flagged = [
+#         item for item in checks
+#         if str(item.get("status") or "") in {"contradictory", "suspicious", "needs_evidence"}
+#     ][:6]
+
+#     if not flagged and not summary:
+#         return ""
+
+#     lines = [
+#         "【超边语义复核】（仅对当前阶段里“已通过结构判定”的规则继续复核语义是否成立）",
+#         f"- 共完成 {int(summary.get('total_checks', 0) or 0)} 组关键配对校验；语义存疑 {int(summary.get('risky_count', 0) or 0)} 组，待补证据 {int(summary.get('needs_evidence_count', 0) or 0)} 组。",
+#     ]
+#     for item in flagged:
+#         status = item.get("status") or "unknown"
+#         severity = item.get("severity") or "medium"
+#         lines.append(
+#             f"- 🔎 [{item.get('rule_id', 'System')}/{status}] (严重度:{severity}) {item.get('left_key', '')}={item.get('left_value', '')} × {item.get('right_key', '')}={item.get('right_value', '')}：{item.get('reason', '')}"
+#         )
+#         hint = (item.get("evidence_hint") or "").strip()
+#         if hint:
+#             lines.append(f"  ↳ 建议补证：{hint}")
+#     return "\n".join(lines) + "\n"
+
+
+
+
+# def _resolve_project_evaluation_stage_def(previous_stage_flow: Dict[str, object]) -> Dict[str, object]:
+#     pending_next_stage_index = int(previous_stage_flow.get("next_stage_index") or 0)
+#     if previous_stage_flow.get("overall_status") == "completed":
+#         evaluation_stage_index = len(PROJECT_STAGE_DEFINITIONS)
+#     elif pending_next_stage_index:
+#         evaluation_stage_index = pending_next_stage_index
+#     else:
+#         evaluation_stage_index = int(previous_stage_flow.get("current_stage_index") or 1)
+#     evaluation_stage_index = max(1, min(evaluation_stage_index, len(PROJECT_STAGE_DEFINITIONS)))
+#     return next((item for item in PROJECT_STAGE_DEFINITIONS if int(item.get("index", 0)) == evaluation_stage_index), PROJECT_STAGE_DEFINITIONS[0])
+
 # def critic_node(state: dict) -> dict:
 #     user_input = (state.get("user_input") or "").strip()
 #     role_id = state.get("selected_role", "student_tutor")
@@ -194,9 +239,9 @@
 #         log_and_emit(state, "critic", f"检测到会话已绑定文档：{bound_file_name or '未命名文件'}")
 #         if current_mode in {"project", "competition"}:
 #             analysis_source_text = (
-#                 f"{_truncate_text(bound_document_text, max_chars=12000)}\n\n"
+#                 f"【学生本轮最新补充说明（最高优先级，代表本轮针对性修复）】\n{user_input}\n\n"
 #                 f"【学生历史补充，代表项目已确认和已尝试修复的内容】\n{chat_history}\n\n"
-#                 f"【学生本轮最新补充说明】\n{user_input}"
+#                 f"【当前会话已绑定商业计划书全文依据】\n{_truncate_text(bound_document_text, max_chars=12000)}"
 #             ).strip()
 
 #     engine_context = ""
@@ -356,9 +401,42 @@
 
 #             hg_engine = HypergraphEngine()
 #             hg_engine.build_hypergraph(extracted_h_edges or {})
-#             alerts = hg_engine.run_topology_diagnostics()
+#             topology_alerts = hg_engine.run_topology_diagnostics()
 
 #             previous_stage_flow = (((state.get("analysis_snapshot") or {}).get("project") or {}).get("stage_flow") or {})
+#             evaluation_stage_def = _resolve_project_evaluation_stage_def(previous_stage_flow)
+#             current_stage_rule_ids = list(evaluation_stage_def.get("rule_ids") or [])
+
+#             topology_stage_flow = build_project_stage_flow(
+#                 previous_stage_flow=previous_stage_flow,
+#                 extracted_edges=extracted_h_edges,
+#                 alerts=topology_alerts,
+#                 source_text=analysis_source_text,
+#             )
+#             topology_current_stage_id = topology_stage_flow.get("current_stage_id")
+#             topology_current_stage = ((topology_stage_flow.get("stages") or {}).get(topology_current_stage_id) or {}) if topology_current_stage_id else {}
+#             structurally_passed_rule_ids = list(topology_current_stage.get("resolved_rule_ids") or [])
+#             structural_active_alerts = list(topology_current_stage.get("active_alerts") or [])
+#             structural_field_notes = build_structural_field_notes(
+#                 extracted_h_edges or {},
+#                 stage_rule_ids=structurally_passed_rule_ids,
+#                 source_text=analysis_source_text,
+#             )
+
+#             semantic_report_all = evaluate_hyperedge_semantics(
+#                 extracted_h_edges or {},
+#                 source_text=analysis_source_text,
+#             )
+#             semantic_report = build_stage_semantic_report(
+#                 semantic_report_all,
+#                 stage_rule_ids=current_stage_rule_ids,
+#                 structurally_passed_rule_ids=structurally_passed_rule_ids,
+#                 fill_missing_for_passed_rules=True,
+#                 source_text=analysis_source_text,
+#             )
+#             semantic_blocking_alerts = build_blocking_semantic_alerts(semantic_report)
+#             alerts = list(topology_alerts) + list(semantic_blocking_alerts)
+
 #             stage_flow = build_project_stage_flow(
 #                 previous_stage_flow=previous_stage_flow,
 #                 extracted_edges=extracted_h_edges,
@@ -370,13 +448,28 @@
 #                 "nodes": extracted_nodes,
 #                 "edges": extracted_h_edges or {},
 #                 "alerts": alerts,
+#                 "topology_alerts": topology_alerts,
+#                 "structural_field_notes": structural_field_notes,
+#                 "semantic_blocking_alerts": semantic_blocking_alerts,
+#                 "semantic_report": semantic_report,
+#                 "semantic_report_all": semantic_report_all,
+#                 "semantic_checks": semantic_report.get("checks", []),
+#                 "semantic_summary": semantic_report.get("summary", {}),
+#                 "semantic_stage_rule_ids": current_stage_rule_ids,
+#                 "semantic_stage_label": evaluation_stage_def.get("label"),
+#                 "structural_rule_status": {
+#                     "resolved_rule_ids": structurally_passed_rule_ids,
+#                     "active_alerts": structural_active_alerts,
+#                     "current_stage_id": topology_current_stage_id,
+#                 },
 #                 "stage_focus_alerts": stage_flow.get("current_stage_alerts", []),
 #                 "guardrail_alerts": stage_flow.get("global_guardrail_alerts", []),
 #                 "current_stage_id": stage_flow.get("current_stage_id"),
 #             }
 
 #             stage_context = _build_stage_context_text(stage_flow)
-#             if alerts or fuzzy_hg_nodes:
+#             semantic_context = _build_semantic_context_text(semantic_report)
+#             if alerts or fuzzy_hg_nodes or semantic_context:
 #                 engine_context = stage_context + "【基于 HyperNetX 的超图逻辑拓扑审查报告】（最高优先级，请严厉指出逻辑断层）：\n"
 #                 if fuzzy_hg_nodes:
 #                     engine_context += f"- 🔍 模糊识别到的底层标准要素：{', '.join(fuzzy_hg_nodes)}\n"
@@ -386,10 +479,17 @@
 #                     severity = alert.get("severity", "high")
 #                     issue = alert.get("issue", "无具体说明")
 #                     engine_context += f"- ⚠️ [{rule_id} {rule_name}] (严重度:{severity})：{issue}\n"
+#                 if semantic_context:
+#                     engine_context += semantic_context
+#                 summary = semantic_report.get("summary") or {}
 #                 log_and_emit(
 #                     state,
 #                     "critic",
-#                     f"成功触发 {len(alerts)} 条超图预警。当前阶段：{stage_flow.get('current_stage_label')}。当前阻塞项：{len((stage_flow.get('current_stage_gate') or {}).get('blocked_reasons', []))}",
+#                     (
+#                         f"成功触发 {len(alerts)} 条超图预警，其中拓扑预警 {len(topology_alerts)} 条、语义阻断预警 {len(semantic_blocking_alerts)} 条；"
+#                         f"当前阶段结构已达成规则 {len(structurally_passed_rule_ids)} 条；语义存疑 {int(summary.get('risky_count', 0) or 0)} 组、待补证据 {int(summary.get('needs_evidence_count', 0) or 0)} 组。"
+#                         f"当前阶段：{stage_flow.get('current_stage_label')}。当前阻塞项：{len((stage_flow.get('current_stage_gate') or {}).get('blocked_reasons', []))}"
+#                     ),
 #                     level="warning" if alerts else "info",
 #                 )
 #             else:
@@ -482,7 +582,6 @@
 #             "llm_unavailable": True,
 #             "kg_context": kg_context,
 #         }
-
 
 
 

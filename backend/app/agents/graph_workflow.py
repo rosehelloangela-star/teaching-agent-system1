@@ -1,6 +1,6 @@
 # from typing import Any, Dict, List, TypedDict, Annotated
 
-# from langchain_core.messages import BaseMessage, HumanMessage
+# from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 # from langgraph.checkpoint.memory import MemorySaver
 # from langgraph.graph import END, StateGraph
 # from langgraph.graph.message import add_messages
@@ -37,6 +37,7 @@
 #     analysis_snapshot: Dict[str, Any]
 #     hypergraph_data: Dict[str, Any]
 #     competition_context: Dict[str, Any]
+#     stage_flow: Dict[str, Any]
 
 
 # def build_initial_state(
@@ -52,8 +53,33 @@
 #     analysis_snapshot: Dict[str, Any] | None = None,
 # ) -> AgentState:
 #     settings = get_settings()
+#     snapshot = analysis_snapshot or {}
+#     existing_stage_flow = ((snapshot.get('project') or {}).get('stage_flow') or {}) if current_mode == 'project' else {}
+
+#     # === 核心改动：组装 Messages，拦截并注入教师干预 ===
+#     messages = []
+    
+#     # 从前端传来的快照中提取教师干预列表
+#     interventions = snapshot.get("teacher_interventions", [])
+#     active_interventions = [item.get("content") for item in interventions if item.get("active") and item.get("content")]
+    
+#     # 如果存在有效的教师干预，作为最高优先级的 SystemMessage 注入
+#     if active_interventions:
+#         intervention_text = "\n".join(f"- {text}" for text in active_interventions)
+#         system_prompt = (
+#             "【最高优先级指令 - 教师强制教学干预】\n"
+#             "人类教师对当前学生下达了强制的教学干预指令。你在本次回复中，必须严格执行以下策略，甚至可以打断当前的常规进度：\n"
+#             f"{intervention_text}\n\n"
+#             "【执行指南】\n"
+#             "1. 若干预是【干预规则】：直接遵循该规则调整你的提问或评估。\n"
+#             "2. 若干预包含【结构化案例注入】：说明老师给学生发了一个商业案例卡片。你必须在回复中引导学生阅读该案例，并提取案例中的痛点或方案反问学生（例如：『参考老师发的案例，你的项目在这个环节是怎么设计的？），切勿单纯复述案例。\n"
+#             "（注：请将上述干预自然地融入你的回复中，不要机械宣告，而是以助教的口吻引导学生。）"
+#         )
+#         messages.append(SystemMessage(content=system_prompt))
+#     # ====================================================
+
 #     return {
-#         "messages": [HumanMessage(content=user_input)],
+#         "messages": messages, # 使用组装好的 messages 数组
 #         "user_input": user_input,
 #         "current_mode": current_mode,
 #         "selected_role": "",
@@ -72,9 +98,10 @@
 #         "bound_file_name": bound_file_name,
 #         "bound_file_uploaded_at": bound_file_uploaded_at,
 #         "document_status": document_status,
-#         "analysis_snapshot": analysis_snapshot or {},
+#         "analysis_snapshot": snapshot,
 #         "hypergraph_data": {},
 #         "competition_context": {},
+#         "stage_flow": existing_stage_flow,
 #     }
 
 
@@ -126,6 +153,10 @@
 
 # memory = MemorySaver()
 # agent_workflow = workflow.compile(checkpointer=memory)
+
+
+
+
 
 from typing import Any, Dict, List, TypedDict, Annotated
 
