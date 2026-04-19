@@ -946,6 +946,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
+from app.agents.competition_templates import TEMPLATE_REGISTRY
 from app.agents.mechanism.llm_config import get_llm
 from app.agents.roles import ROLE_CONFIG_REGISTRY
 from app.core.json_utils import extract_first_json_value, message_content_to_text, parse_pydantic_from_text
@@ -1367,6 +1368,62 @@ def _safe_parse_pydantic(raw_text: str, schema):
     return parse_pydantic_from_text(payload, schema)
 
 
+_PROJECT_STAGE_COMPETITION_IMPROVEMENTS = {
+    1: {
+        "math_modeling": "补清问题定义、建模对象边界、变量口径与基础数据来源。",
+        "challenge_cup": "补清研究问题的学术意义、创新点对比与已有研究承接关系。",
+        "innovation_entrepreneurship": "补出真实调研、用户访谈和学生参与过程证据，别只停留在想法。",
+        "internet_plus": "补清目标用户、核心场景、刚需痛点与初步付费逻辑。",
+    },
+    2: {
+        "math_modeling": "补出模型假设、核心方程/算法逻辑、对比基线与敏感性分析。",
+        "challenge_cup": "补强技术原理、验证指标、实验设计或原型证据，避免只有概念没有论证。",
+        "innovation_entrepreneurship": "补出阶段成果、试点反馈、资源整合与下一步迭代路径。",
+        "internet_plus": "补出收入模式、定价依据、单位经济、获客路径与商业闭环。",
+    },
+    3: {
+        "math_modeling": "补强结果验证、鲁棒性、计算效率与可视化表达。",
+        "challenge_cup": "补强技术成熟度、原型完成度、论文/专利/测试记录等硬证据。",
+        "innovation_entrepreneurship": "补强里程碑、落地试点、导师/校内外资源支撑与执行分工。",
+        "internet_plus": "补强渠道落地、合作资源、财务可行性与规模化路径。",
+    },
+}
+
+
+def _build_project_competition_hint_text(stage_flow: Dict[str, Any]) -> str:
+    stage_index = int(stage_flow.get("current_stage_index") or 1)
+    stage_label = stage_flow.get("current_stage_label") or "当前阶段"
+    stage_id = stage_flow.get("current_stage_id") or ""
+    stages = stage_flow.get("stages") or {}
+    current_stage = stages.get(stage_id, {}) if stage_id else {}
+    stage_goal = (current_stage.get("goal") or "").strip() or "请围绕当前阶段最关键缺口给出简短建议。"
+
+    stage_improvements = _PROJECT_STAGE_COMPETITION_IMPROVEMENTS.get(
+        stage_index,
+        _PROJECT_STAGE_COMPETITION_IMPROVEMENTS[3],
+    )
+
+    lines = [
+        "【项目模式中的轻量赛事适配参考】",
+        f"- 当前阶段：第{stage_index}阶段【{stage_label}】",
+        f"- 当前阶段目标：{stage_goal}",
+        "- 这不是竞赛模式。你只能提供轻量赛事适配建议，不能输出评分、Rubric、扣分项、24h/72h 冲刺表，也不要改成评委式长篇讲评。",
+        "- 你只能从以下 4 个既定赛事模板里选择 1 到 2 个最适合当前项目的方向，不得额外发散到其他比赛。",
+        "- 你的建议必须简短，重点是『为什么适合』以及『这一阶段最值得补的 1 到 2 个点』。",
+        "- 若项目当前不适合直接参赛，也可以说明“更适合作为储备方向”，但仍需从这 4 类中给出最接近的方向。",
+    ]
+
+    for template_id in ("math_modeling", "challenge_cup", "innovation_entrepreneurship", "internet_plus"):
+        template = TEMPLATE_REGISTRY.get(template_id, {})
+        lines.append(
+            f"* {template.get('template_name', template_id)}："
+            f"口径重点={template.get('focus_hint', '无')}；"
+            f"本阶段建议补强={stage_improvements.get(template_id, '补足当前阶段最关键证据。')}"
+        )
+
+    return "\n".join(lines)
+
+
 def _build_rule_based_competition_reply(content: Dict[str, Any]) -> str:
     meta = content.get("competition_meta", {})
     summary = content.get("score_summary", {})
@@ -1583,9 +1640,11 @@ def generator_node(state: dict) -> dict:
     errors = state.get("validation_errors") or "无"
     user_input = state.get("user_input", "")
     competition_context = state.get("competition_context", {})
+    stage_flow = state.get("stage_flow", {}) or {}
     
     kg_context = state.get("kg_context", {}) or {}
     kg_context_text = _build_learning_kg_text(kg_context)
+    project_competition_hint_text = _build_project_competition_hint_text(stage_flow) if role_id == "project_coach" else "无"
 
     output_contract = _build_output_contract(role_id)
 
@@ -1685,14 +1744,18 @@ def generator_node(state: dict) -> dict:
             "【任务二：撰写对话文本（reply 字段）】\n"
             "1. 视觉渲染：必须充分利用 Markdown 语法（**加粗**、> 引用块、### 标题、- 列表）。\n"
             "2. 反代写拦截：面对学生要求直接罗列答案时，设 is_refused = true，在 reply 开头强硬拒绝。\n"
-            "3. 显性结构化：在 reply 中，必须按顺序使用 Markdown 小标题包含以下 5 个模块：\n"
+            "3. 项目模式保持主导：你的核心任务仍然是推进项目本身，而不是做完整赛事辅导。比赛倾向只能作为附加提醒，篇幅必须短，不能喧宾夺主。\n"
+            "4. 显性结构化：在 reply 中，必须按顺序使用 Markdown 小标题包含以下 6 个模块：\n"
             "   ### 📍 项目所处阶段（明确指出是 想法期 / 原型期 / 验证期 之一）\n"
             "   ### 🩺 当前核心诊断（指出最大矛盾或缺口）\n"
             "   ### 🔎 诊断证据追踪（> 引用原文本或诊断信息说明依据）\n"
             "   ### ⚠️ 风险预警（说明不修复的致命后果）\n"
             "   ### 🎯 破局任务（结合前面的 only_one_task，给出执行模板/步骤）\n"
+            "   ### 🏆 比赛适配建议（只做轻量推荐：从数学建模、挑战杯、创新创业、互联网+中选 1 到 2 个最适合的方向；每个方向只需简要写“为什么适合”+“这一阶段建议补什么”）\n"
             "\n"
-            "4. 非对称信息获取与压力测试（核心灵魂）：在 reply 的最后，你必须从以下 3 层逻辑中【选择最致命的 1 到 2 个】作为苏格拉底式追问收尾：\n"
+            "   - `### 🏆 比赛适配建议` 中严禁出现评分、权重、Rubric 打分、扣分项、长篇赛事分析；它只是帮助学生判断『如果参赛，更偏向哪一类』。\n"
+            "   - 如果项目明显更偏研究/算法，可优先考虑数学建模或挑战杯；如果更偏项目实践/创业训练，可优先考虑创新创业；如果更偏商业闭环与市场落地，可优先考虑互联网+。\n"
+            "5. 非对称信息获取与压力测试（核心灵魂）：在 reply 的最后，你必须从以下 3 层逻辑中【选择最致命的 1 到 2 个】作为苏格拉底式追问收尾：\n"
             "   - 逻辑1【寻找隐形替代品】：引导从产品形态转向任务目标。用户的零成本方案/旧习惯都是你的竞争对手。\n"
             "   - 逻辑2【模拟巨头入场】：如果字节/腾讯内置了这个功能免费做，你的护城河在哪？\n"
             "   - 逻辑3【成本转换与生存测试】：这提升的体验能覆盖用户迁移成本吗？不融资你能活多久？\n"
@@ -1724,7 +1787,7 @@ def generator_node(state: dict) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt_text),
-        ("user", "原始输入：\n{user_input}\n\n图谱检索结果：\n{kg_context_text}\n\n诊断：\n{diagnosis}\n\n任务：\n{tasks}\n\n上次报错：\n{errors}\n\n⚠️ 警告：请确保字段严密对应！")
+        ("user", "原始输入：\n{user_input}\n\n图谱检索结果：\n{kg_context_text}\n\n项目模式赛事适配参考：\n{project_competition_hint_text}\n\n诊断：\n{diagnosis}\n\n任务：\n{tasks}\n\n上次报错：\n{errors}\n\n⚠️ 警告：请确保字段严密对应！")
     ])
 
     chain = prompt | llm
@@ -1739,6 +1802,7 @@ def generator_node(state: dict) -> dict:
                 "tasks": tasks_text,
                 "errors": errors,
                 "kg_context_text": kg_context_text,
+                "project_competition_hint_text": project_competition_hint_text,
             }
         )
         raw_text = _clean_json_fence(message_content_to_text(response))
