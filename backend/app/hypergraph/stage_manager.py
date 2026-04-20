@@ -547,15 +547,18 @@
 #     }
 
 
-
-
 from __future__ import annotations
 
 from typing import Any, Dict, List, Set, Tuple
 
-from app.hypergraph.stage_config import PROJECT_STAGE_DEFINITIONS, RULE_METADATA
+from app.hypergraph.stage_config import (
+    RULE_METADATA,
+    PROJECT_TYPE_COMMERCIAL,
+    detect_project_type,
+    get_stage_definitions,
+    infer_project_type_from_stage_flow,
+)
 from app.hypergraph.strategy_library import select_project_followup_questions
-
 
 SEVERITY_WEIGHT = {
     "critical": 30,
@@ -586,11 +589,7 @@ def _extract_standard_keys(extracted_edges: Dict[str, List[str]]) -> Tuple[Set[s
 
 
 def _build_alert_map(alerts: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    return {
-        alert.get("rule"): alert
-        for alert in alerts or []
-        if alert.get("rule")
-    }
+    return {alert.get("rule"): alert for alert in alerts or [] if alert.get("rule")}
 
 
 def _rule_weight(rule_id: str, alert_map: Dict[str, Dict[str, Any]]) -> int:
@@ -614,11 +613,11 @@ def _detect_evidence_signals(source_text: str) -> Dict[str, bool]:
     text = (source_text or "").lower()
     return {
         "field_research": _contains_any(text, ["调研", "访谈", "走访", "受访", "问卷", "样本", "案例", "报告", "记录", "引述", "quotes", "interview"]),
-        "pain_evidence": _contains_any(text, ["痛点", "损耗", "损失", "误工", "延误", "来不及", "时效", "故障", "风险", "焦虑", "麻烦"]),
-        "payment_evidence": _contains_any(text, ["支付意愿", "愿意付", "愿付", "价格", "报价", "单价", "元/单", "元/公斤", "多少钱", "付费"]),
-        "cost_evidence": _contains_any(text, ["成本", "油费", "电池", "人力", "设备损耗", "获客成本", "cac", "ltv", "补贴"]),
-        "supply_evidence": _contains_any(text, ["飞手", "合作社", "经销商", "供应链", "配送员", "接单", "报价"]),
-        "pilot_evidence": _contains_any(text, ["试点", "试运行", "模拟订单", "样机", "mvp", "小范围", "首批用户"]),
+        "pain_evidence": _contains_any(text, ["痛点", "损耗", "损失", "误工", "延误", "来不及", "时效", "故障", "风险", "焦虑", "麻烦", "困境", "问题严重"]),
+        "payment_evidence": _contains_any(text, ["支付意愿", "愿意付", "愿付", "价格", "报价", "单价", "元/单", "元/公斤", "多少钱", "付费", "捐赠", "资助", "筹资"]),
+        "cost_evidence": _contains_any(text, ["成本", "油费", "电池", "人力", "设备损耗", "获客成本", "cac", "ltv", "补贴", "资金使用", "预算"]),
+        "supply_evidence": _contains_any(text, ["飞手", "合作社", "经销商", "供应链", "配送员", "接单", "报价", "协同方", "志愿者", "社区", "学校"]),
+        "pilot_evidence": _contains_any(text, ["试点", "试运行", "模拟订单", "样机", "mvp", "小范围", "首批用户", "试点学校", "试点社区"]),
     }
 
 
@@ -631,14 +630,10 @@ def _infer_text_anchor_hits(stage_id: str, label: str, source_text: str, evidenc
     if stage_id == "stage_1_core":
         if label == "目标用户" and _contains_any(text, ["用户", "农民", "农户", "种植大户", "合作社", "飞手", "老人", "学生", "商家", "客户"]):
             hits.append("文本命中:目标用户")
-        elif label == "核心痛点":
-            if _contains_any(text, ["痛点", "损耗", "损失", "时效", "延误", "来不及", "急需", "误工", "成本高", "价格敏感", "当天", "24小时"]) or (
-                evidence_signals.get("field_research") and (evidence_signals.get("pain_evidence") or evidence_signals.get("payment_evidence"))
-            ):
-                hits.append("文本命中:核心痛点")
+        elif label == "核心痛点" and (_contains_any(text, ["痛点", "损耗", "损失", "时效", "延误", "来不及", "急需", "误工", "成本高", "价格敏感", "当天", "24小时"]) or (evidence_signals.get("field_research") and (evidence_signals.get("pain_evidence") or evidence_signals.get("payment_evidence")))):
+            hits.append("文本命中:核心痛点")
         elif label == "价值/方案表达" and _contains_any(text, ["价值主张", "方案", "服务", "无人机", "配送", "平台", "24小时送达", "调度", "帮助", "解决"]):
             hits.append("文本命中:价值方案")
-
     elif stage_id == "stage_2_logic":
         if label == "收入/定价表达" and _contains_any(text, ["定价", "价格", "收费", "抽成", "收入", "盈利", "元/单", "revenue", "price"]):
             hits.append("文本命中:收入定价")
@@ -646,7 +641,6 @@ def _infer_text_anchor_hits(stage_id: str, label: str, source_text: str, evidenc
             hits.append("文本命中:单位经济")
         elif label == "生存压力" and _contains_any(text, ["现金流", "burn", "融资", "补贴", "账期", "启动资金", "能活多久", "盈亏平衡"]):
             hits.append("文本命中:生存压力")
-
     elif stage_id == "stage_3_reality":
         if label == "团队/技术" and _contains_any(text, ["团队", "技术路线", "研发", "飞手", "算法", "工程师", "trl"]):
             hits.append("文本命中:团队技术")
@@ -654,7 +648,27 @@ def _infer_text_anchor_hits(stage_id: str, label: str, source_text: str, evidenc
             hits.append("文本命中:资源里程碑")
         elif label == "落地/合规" and _contains_any(text, ["合规", "政策", "供应链", "供应商", "履约", "落地", "村委", "合作社", "冷启动"]):
             hits.append("文本命中:落地合规")
-
+    elif stage_id == "public_stage_1_need":
+        if label == "受益对象" and _contains_any(text, ["受益对象", "服务对象", "帮扶对象", "儿童", "老人", "残障", "农户", "留守", "社区"]):
+            hits.append("文本命中:受益对象")
+        elif label == "需求证据" and (_contains_any(text, ["调研", "访谈", "样本", "走访", "问题严重", "基线", "困境"]) or evidence_signals.get("field_research")):
+            hits.append("文本命中:需求证据")
+        elif label == "干预方案" and _contains_any(text, ["干预", "服务方案", "课程", "陪伴", "培训", "辅导", "转介", "筛查"]):
+            hits.append("文本命中:干预方案")
+    elif stage_id == "public_stage_2_sustainability":
+        if label == "筹资/造血" and _contains_any(text, ["捐赠", "资助", "基金会", "csr", "政府购买服务", "筹资", "收入补充"]):
+            hits.append("文本命中:筹资造血")
+        elif label == "影响评估" and _contains_any(text, ["指标", "评估", "基线", "前后测", "成效", "impact"]):
+            hits.append("文本命中:影响评估")
+        elif label == "成本与信任" and _contains_any(text, ["成本", "资金使用", "公示", "披露", "第三方", "透明"]):
+            hits.append("文本命中:成本信任")
+    elif stage_id == "public_stage_3_scale":
+        if label == "复制与扩散" and _contains_any(text, ["试点", "复制", "扩散", "推广", "规模化"]):
+            hits.append("文本命中:复制扩散")
+        elif label == "运营与资源" and _contains_any(text, ["志愿者", "培训", "排班", "关键资源", "风险预案"]):
+            hits.append("文本命中:运营资源")
+        elif label == "合规与共创" and _contains_any(text, ["政策", "资质", "安全", "企业合作", "学校", "医院", "社区", "共创"]):
+            hits.append("文本命中:合规共创")
     return hits
 
 
@@ -682,14 +696,12 @@ def _resolve_anchor_status(
             passed = True
             hits = sorted(set(hits).union(previous_group.get("matched_keys", []) or []))
 
-        groups.append(
-            {
-                "label": group.get("label", "未命名锚点"),
-                "required_keys": group.get("keys", []),
-                "matched_keys": hits,
-                "passed": passed,
-            }
-        )
+        groups.append({
+            "label": group.get("label", "未命名锚点"),
+            "required_keys": group.get("keys", []),
+            "matched_keys": hits,
+            "passed": passed,
+        })
 
     passed_group_count = sum(1 for item in groups if item["passed"])
     min_required_groups = int(stage_def.get("anchor_min_groups", len(groups) if groups else 0))
@@ -704,49 +716,32 @@ def _resolve_anchor_status(
     }
 
 
-def _build_stage_blockers(
-    *,
-    progress_pct: int,
-    pass_threshold: int,
-    critical_unresolved: List[str],
-    anchor_status: Dict[str, Any],
-    max_critical_carryover: int = 0,
-) -> List[Dict[str, Any]]:
+def _build_stage_blockers(*, progress_pct: int, pass_threshold: int, critical_unresolved: List[str], anchor_status: Dict[str, Any], max_critical_carryover: int = 0) -> List[Dict[str, Any]]:
     blockers: List[Dict[str, Any]] = []
-
     if progress_pct < pass_threshold:
-        blockers.append(
-            {
-                "code": "progress_not_enough",
-                "label": "阶段进度未达标",
-                "detail": f"当前进度 {progress_pct}% ，仍未达到 {pass_threshold}% 的进阶门槛。",
-            }
-        )
-
+        blockers.append({
+            "code": "progress_not_enough",
+            "label": "阶段进度未达标",
+            "detail": f"当前进度 {progress_pct}% ，仍未达到 {pass_threshold}% 的进阶门槛。",
+        })
     if len(critical_unresolved) > max_critical_carryover:
-        blockers.append(
-            {
-                "code": "critical_rules_remaining",
-                "label": "关键高危规则仍过多",
-                "detail": f"当前仍有 {len(critical_unresolved)} 条关键高危规则：{', '.join(critical_unresolved)}；本阶段最多允许保留 {max_critical_carryover} 条进入下一轮。",
-                "rule_ids": list(critical_unresolved),
-                "allowed_carryover": max_critical_carryover,
-            }
-        )
-
+        blockers.append({
+            "code": "critical_rules_remaining",
+            "label": "关键高危规则仍过多",
+            "detail": f"当前仍有 {len(critical_unresolved)} 条关键高危规则：{', '.join(critical_unresolved)}；本阶段最多允许保留 {max_critical_carryover} 条进入下一轮。",
+            "rule_ids": list(critical_unresolved),
+            "allowed_carryover": max_critical_carryover,
+        })
     missing_labels = list((anchor_status or {}).get("missing_labels", []))
     if not (anchor_status or {}).get("passed", True):
-        blockers.append(
-            {
-                "code": "anchor_not_ready",
-                "label": "结构锚点覆盖不足",
-                "detail": f"当前已满足 {(anchor_status or {}).get('passed_group_count', 0)}/{(anchor_status or {}).get('required_group_count', 0)} 组锚点要求；仍可继续补强：{', '.join(missing_labels) if missing_labels else '暂无'}。",
-                "missing_labels": missing_labels,
-                "passed_group_count": (anchor_status or {}).get('passed_group_count', 0),
-                "required_group_count": (anchor_status or {}).get('required_group_count', 0),
-            }
-        )
-
+        blockers.append({
+            "code": "anchor_not_ready",
+            "label": "结构锚点覆盖不足",
+            "detail": f"当前已满足 {(anchor_status or {}).get('passed_group_count', 0)}/{(anchor_status or {}).get('required_group_count', 0)} 组锚点要求；仍可继续补强：{', '.join(missing_labels) if missing_labels else '暂无'}。",
+            "missing_labels": missing_labels,
+            "passed_group_count": (anchor_status or {}).get('passed_group_count', 0),
+            "required_group_count": (anchor_status or {}).get('required_group_count', 0),
+        })
     return blockers
 
 
@@ -778,6 +773,31 @@ def _stage_progress_bonus(stage_id: str, evidence_signals: Dict[str, bool]) -> i
         if evidence_signals.get("field_research"):
             bonus += 1
         return min(bonus, 8)
+    if stage_id == "public_stage_1_need":
+        bonus = 0
+        if evidence_signals.get("field_research"):
+            bonus += 5
+        if evidence_signals.get("pain_evidence"):
+            bonus += 3
+        return min(bonus, 8)
+    if stage_id == "public_stage_2_sustainability":
+        bonus = 0
+        if evidence_signals.get("payment_evidence"):
+            bonus += 4
+        if evidence_signals.get("cost_evidence"):
+            bonus += 2
+        if evidence_signals.get("field_research"):
+            bonus += 2
+        return min(bonus, 8)
+    if stage_id == "public_stage_3_scale":
+        bonus = 0
+        if evidence_signals.get("pilot_evidence"):
+            bonus += 4
+        if evidence_signals.get("supply_evidence"):
+            bonus += 2
+        if evidence_signals.get("field_research"):
+            bonus += 2
+        return min(bonus, 8)
     return 0
 
 
@@ -792,35 +812,27 @@ def build_project_stage_flow(
     extracted_edges = extracted_edges or {}
     alerts = alerts or []
 
+    project_type = infer_project_type_from_stage_flow(previous_stage_flow, fallback=detect_project_type(source_text, extracted_edges))
+    stage_definitions = get_stage_definitions(project_type)
+
     alert_map = _build_alert_map(alerts)
     current_standard_keys, flat_nodes = _extract_standard_keys(extracted_edges)
     evidence_signals = _detect_evidence_signals(source_text)
-
     previous_confirmed_standard_keys = set(previous_stage_flow.get("confirmed_standard_keys", []) or previous_stage_flow.get("all_standard_keys", []) or [])
     confirmed_standard_keys = set(previous_confirmed_standard_keys).union(current_standard_keys)
 
-    previous_stage_id = previous_stage_flow.get("current_stage_id") or PROJECT_STAGE_DEFINITIONS[0]["id"]
-    previous_stage_index = 1
-    for stage in PROJECT_STAGE_DEFINITIONS:
-        if stage["id"] == previous_stage_id:
-            previous_stage_index = int(stage["index"])
-            break
-
+    previous_stage_id = previous_stage_flow.get("current_stage_id") or stage_definitions[0]["id"]
+    previous_stage_index = next((int(s["index"]) for s in stage_definitions if s["id"] == previous_stage_id), 1)
     previous_stages = previous_stage_flow.get("stages") or {}
-
-    # 顺序闯关：每一轮只允许评估一个“当前阶段”。
-    # 如果上一轮刚好完成，则通过 next_stage_index 在下一轮再进入下一阶段。
     pending_next_stage_index = int(previous_stage_flow.get("next_stage_index") or 0)
 
-    is_force_completed = previous_stage_flow.get("overall_status") == "completed" or pending_next_stage_index > len(PROJECT_STAGE_DEFINITIONS)
-    
     if previous_stage_flow.get("overall_status") == "completed":
-        evaluation_stage_index = len(PROJECT_STAGE_DEFINITIONS)
+        evaluation_stage_index = len(stage_definitions)
     elif pending_next_stage_index:
         evaluation_stage_index = pending_next_stage_index
     else:
         evaluation_stage_index = int(previous_stage_flow.get("current_stage_index") or previous_stage_index or 1)
-    evaluation_stage_index = max(1, min(evaluation_stage_index, len(PROJECT_STAGE_DEFINITIONS)))
+    evaluation_stage_index = max(1, min(evaluation_stage_index, len(stage_definitions)))
 
     def _make_base_stage(stage_def: Dict[str, Any], previous_stage: Dict[str, Any] | None) -> Dict[str, Any]:
         previous_stage = previous_stage or {}
@@ -856,7 +868,7 @@ def build_project_stage_flow(
     stage_results: List[Dict[str, Any]] = []
     evaluated_stage_result: Dict[str, Any] | None = None
 
-    for stage in PROJECT_STAGE_DEFINITIONS:
+    for stage in stage_definitions:
         stage_id = stage["id"]
         stage_index = int(stage["index"])
         previous_stage = previous_stages.get(stage_id) or {}
@@ -864,20 +876,18 @@ def build_project_stage_flow(
 
         if stage_index < evaluation_stage_index:
             stage_block = _make_base_stage(stage, previous_stage)
-            stage_block.update(
-                {
-                    "status": "passed",
-                    "progress_pct": max(int(stage_block.get("progress_pct", 0) or 0), int(stage.get("pass_threshold", 80))),
-                    "active_rule_ids": [],
-                    "active_alerts": [],
-                    "critical_unresolved": [],
-                    "sticky_reopened_alerts": [],
-                    "sticky_reopened_rule_ids": [],
-                    "followup_questions": [],
-                    "can_advance": True,
-                    "blocked_reasons": [],
-                }
-            )
+            stage_block.update({
+                "status": "passed",
+                "progress_pct": max(int(stage_block.get("progress_pct", 0) or 0), int(stage.get("pass_threshold", 80))),
+                "active_rule_ids": [],
+                "active_alerts": [],
+                "critical_unresolved": [],
+                "sticky_reopened_alerts": [],
+                "sticky_reopened_rule_ids": [],
+                "followup_questions": [],
+                "can_advance": True,
+                "blocked_reasons": [],
+            })
             if not stage_block.get("resolved_rule_ids"):
                 stage_block["resolved_rule_ids"] = list(rule_ids)
             if not stage_block.get("anchor_status"):
@@ -893,23 +903,13 @@ def build_project_stage_flow(
 
         if stage_index > evaluation_stage_index:
             stage_block = _make_base_stage(stage, previous_stage)
-            stage_block.update(
-                {
-                    "status": "locked",
-                    # 未解锁阶段不使用本轮文本重新打分，避免在第一阶段直接把第二、三阶段也“提前通关”。
-                    "progress_pct": int(previous_stage.get("progress_pct", 0) or 0),
-                    "active_rule_ids": list(previous_stage.get("active_rule_ids", []) or []),
-                    "active_alerts": list(previous_stage.get("active_alerts", []) or []),
-                    "critical_unresolved": list(previous_stage.get("critical_unresolved", []) or []),
-                    "followup_questions": list(previous_stage.get("followup_questions", []) or []),
-                    "can_advance": False,
-                    "blocked_reasons": list(previous_stage.get("blocked_reasons", []) or []),
-                }
-            )
+            stage_block.update({
+                "status": "locked",
+                "can_advance": False,
+            })
             stage_results.append(stage_block)
             continue
 
-        # 仅评估当前阶段
         active_alerts_raw = [alert_map[rule_id] for rule_id in rule_ids if rule_id in alert_map]
         previous_resolved_rule_ids = set(previous_stage.get("resolved_rule_ids", []) or [])
         previous_reopened_rule_counts = previous_stage.get("reopened_rule_counts") or {}
@@ -923,11 +923,9 @@ def build_project_stage_flow(
             rule_id = alert.get("rule")
             if not rule_id:
                 continue
-
             if rule_id in previous_resolved_rule_ids:
                 reopen_count = int(previous_reopened_rule_counts.get(rule_id, 0)) + 1
                 reopened_rule_counts[rule_id] = reopen_count
-                # 放宽：高质量项目在后续补充中经常会带出新问题，不应因为一次回摆就重新卡死。
                 if reopen_count >= 3:
                     unresolved_rule_ids.append(rule_id)
                     active_alerts.append(alert)
@@ -938,15 +936,8 @@ def build_project_stage_flow(
                 active_alerts.append(alert)
 
         unresolved_rule_ids = _normalize_rule_ids(unresolved_rule_ids, rule_ids)
-        resolved_rule_ids = _normalize_rule_ids(
-            [rule_id for rule_id in rule_ids if rule_id not in unresolved_rule_ids] + list(previous_resolved_rule_ids),
-            rule_ids,
-        )
-
-        critical_unresolved = [
-            alert.get("rule") for alert in active_alerts if (alert.get("severity") or '').lower() == 'critical'
-        ]
-        critical_unresolved = _normalize_rule_ids([item for item in critical_unresolved if item], rule_ids)
+        resolved_rule_ids = _normalize_rule_ids([rid for rid in rule_ids if rid not in unresolved_rule_ids] + list(previous_resolved_rule_ids), rule_ids)
+        critical_unresolved = _normalize_rule_ids([alert.get("rule") for alert in active_alerts if (alert.get("severity") or '').lower() == 'critical' and alert.get("rule")], rule_ids)
 
         total_weight = sum(_rule_weight(rule_id, alert_map) for rule_id in rule_ids) or 1
         unresolved_weight = sum(_rule_weight(rule_id, alert_map) for rule_id in unresolved_rule_ids)
@@ -991,10 +982,7 @@ def build_project_stage_flow(
             "critical_unresolved": critical_unresolved,
             "active_alerts": [] if passed else active_alerts,
             "sticky_reopened_alerts": sticky_reopened_alerts,
-            "sticky_reopened_rule_ids": _normalize_rule_ids(
-                [alert.get("rule") for alert in sticky_reopened_alerts if alert.get("rule")],
-                rule_ids,
-            ),
+            "sticky_reopened_rule_ids": _normalize_rule_ids([alert.get("rule") for alert in sticky_reopened_alerts if alert.get("rule")], rule_ids),
             "reopened_rule_counts": reopened_rule_counts,
             "followup_questions": followup_questions,
             "score_breakdown": {
@@ -1016,30 +1004,25 @@ def build_project_stage_flow(
         evaluated_stage_result = stage_results[-1]
 
     current_stage_index = evaluation_stage_index
-    current_stage_def = PROJECT_STAGE_DEFINITIONS[current_stage_index - 1]
+    current_stage_def = stage_definitions[current_stage_index - 1]
     current_stage_passed = evaluated_stage_result.get("status") == "passed"
-
-    # 新增：判断上一轮的上一阶段是否已经自然通关
     prev_stage_was_passed_last_turn = previous_stages.get(previous_stage_id, {}).get("status") == "passed"
-    
-    # 修正精算：强制跳跃的判定标准 -> 当前阶段大于历史阶段，且历史阶段在上一次并没有自然通关
     is_forced_jump = current_stage_index > previous_stage_index and not prev_stage_was_passed_last_turn
     just_upgraded = current_stage_passed
 
     next_stage_index = None
     next_stage_label = None
-    overall_status = "completed" if (current_stage_passed and current_stage_index == len(PROJECT_STAGE_DEFINITIONS)) else "in_progress"
-
-    if current_stage_passed and current_stage_index < len(PROJECT_STAGE_DEFINITIONS):
+    overall_status = "completed" if (current_stage_passed and current_stage_index == len(stage_definitions)) else "in_progress"
+    if current_stage_passed and current_stage_index < len(stage_definitions):
         next_stage_index = current_stage_index + 1
-        next_stage_label = PROJECT_STAGE_DEFINITIONS[next_stage_index - 1]["label"]
+        next_stage_label = stage_definitions[next_stage_index - 1]["label"]
 
     normalized_stage_results: Dict[str, Dict[str, Any]] = {}
     for stage in stage_results:
-        stage_index = int(stage["index"])
-        if stage_index < current_stage_index:
+        idx = int(stage["index"])
+        if idx < current_stage_index:
             stage["status"] = "passed"
-        elif stage_index == current_stage_index:
+        elif idx == current_stage_index:
             stage["status"] = "passed" if current_stage_passed else "current"
         else:
             stage["status"] = "locked"
@@ -1048,7 +1031,6 @@ def build_project_stage_flow(
     if just_upgraded:
         milestone_message = current_stage_def.get("milestone_message", '')
     elif is_forced_jump:
-        skipped_stage_def = PROJECT_STAGE_DEFINITIONS[previous_stage_index - 1]
         milestone_message = f"【系统提示：教师已强制调控流转至“{current_stage_def.get('label')}”】上一阶段未达标规则已作豁免处理。"
     else:
         milestone_message = ""
@@ -1057,18 +1039,11 @@ def build_project_stage_flow(
     current_followup_questions = list(evaluated_stage_result.get("followup_questions", []))
     guardrail_rule_ids = list(current_stage_def.get("guardrail_rule_ids", []))
     guardrail_alerts = [alert_map[rule_id] for rule_id in guardrail_rule_ids if rule_id in alert_map]
-
     blockers = list(evaluated_stage_result.get("blocked_reasons", []))
-    stage_progress_summary = {
-        "resolved_rules": len(evaluated_stage_result.get("resolved_rule_ids", [])),
-        "total_rules": len(evaluated_stage_result.get("rule_ids", [])),
-        "critical_remaining": len(evaluated_stage_result.get("critical_unresolved", [])),
-        "sticky_watchlist": len(evaluated_stage_result.get("sticky_reopened_rule_ids", [])),
-        "blocked_reason_count": len(blockers),
-        "can_advance": not blockers,
-    }
 
     return {
+        "project_type": project_type,
+        "project_type_label": "公益项目" if project_type != PROJECT_TYPE_COMMERCIAL else "商业项目",
         "current_stage_id": evaluated_stage_result["id"],
         "current_stage_label": evaluated_stage_result["label"],
         "current_stage_index": evaluated_stage_result["index"],
@@ -1082,7 +1057,14 @@ def build_project_stage_flow(
         "current_stage_alerts": current_stage_alerts,
         "current_followup_questions": current_followup_questions,
         "global_guardrail_alerts": guardrail_alerts,
-        "stage_progress_summary": stage_progress_summary,
+        "stage_progress_summary": {
+            "resolved_rules": len(evaluated_stage_result.get("resolved_rule_ids", [])),
+            "total_rules": len(evaluated_stage_result.get("rule_ids", [])),
+            "critical_remaining": len(evaluated_stage_result.get("critical_unresolved", [])),
+            "sticky_watchlist": len(evaluated_stage_result.get("sticky_reopened_rule_ids", [])),
+            "blocked_reason_count": len(blockers),
+            "can_advance": not blockers,
+        },
         "current_stage_gate": {
             "ready": not blockers,
             "advance_rule_text": evaluated_stage_result.get("advance_rule_text", ''),
@@ -1096,4 +1078,3 @@ def build_project_stage_flow(
         "all_extracted_nodes": flat_nodes,
         "stages": normalized_stage_results,
     }
-

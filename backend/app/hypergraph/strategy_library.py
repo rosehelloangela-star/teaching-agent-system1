@@ -3,6 +3,126 @@ from __future__ import annotations
 from typing import Dict, List
 
 PROJECT_RULE_STRATEGIES: Dict[str, List[Dict[str, str]]] = {
+    "PR1": [
+        {
+            "strategy_id": "beneficiary_boundary",
+            "strategy_name": "受益对象边界澄清",
+            "question": "请只回答三项：谁是受益对象、问题发生在什么具体场景、为什么偏偏是这群人最需要你。",
+            "resolve_hint": "受益对象、场景和紧迫性同时出现。",
+        },
+    ],
+    "PR2": [
+        {
+            "strategy_id": "need_evidence_pack",
+            "strategy_name": "需求证据补包",
+            "question": "你说的问题严重，请补三类证据中的至少两类：访谈/走访样本、直接引述、问题严重度数据。",
+            "resolve_hint": "项目出现样本、观察或严重度证据，而不是纯主观判断。",
+        },
+    ],
+    "PR3": [
+        {
+            "strategy_id": "solution_to_need",
+            "strategy_name": "方案贴需求复核",
+            "question": "把你的服务拆成1到3个动作，并分别回答：它们各自对应解决受益者的哪个具体问题？",
+            "resolve_hint": "服务动作与真实问题一一对应。",
+        },
+    ],
+    "PR4": [
+        {
+            "strategy_id": "stakeholder_map",
+            "strategy_name": "关键协同方地图",
+            "question": "这个项目离不开哪三类协同方？政府/学校/社区/公益组织/志愿者里，谁负责触达、谁负责执行、谁负责背书？",
+            "resolve_hint": "协同方不再泛泛而谈，而是进入职责分工。",
+        },
+    ],
+    "PR5": [
+        {
+            "strategy_id": "ethics_guardrail",
+            "strategy_name": "伦理保护清单",
+            "question": "如果服务对象属于儿童、老人、残障或其他弱势群体，请明确：谁来授权同意、怎么保护隐私、出了风险谁兜底？",
+            "resolve_hint": "出现同意、隐私与风险责任三要素。",
+        },
+    ],
+    "PR6": [
+        {
+            "strategy_id": "funding_stack",
+            "strategy_name": "资金来源堆栈",
+            "question": "未来12个月你的钱从哪里来？请至少拆成两层：主要资金来源 + 补充造血来源。",
+            "resolve_hint": "出现主资金来源和补充资金机制。",
+        },
+    ],
+    "PR7": [
+        {
+            "strategy_id": "service_cost_sheet",
+            "strategy_name": "单次服务成本表",
+            "question": "你每服务一个对象，大概要花多少钱？请拆成直接服务成本、管理成本和你认为可接受的资金使用比例。",
+            "resolve_hint": "出现单次服务成本与资金效率意识。",
+        },
+    ],
+    "PR8": [
+        {
+            "strategy_id": "impact_metric_chain",
+            "strategy_name": "影响指标链",
+            "question": "你的影响目标怎么量化？请给出：一个目标、两个指标、一个基线或对照方法。",
+            "resolve_hint": "影响目标和验证方法形成基本闭环。",
+        },
+    ],
+    "PR9": [
+        {
+            "strategy_id": "reach_to_retention",
+            "strategy_name": "触达到留存路径",
+            "question": "你怎么找到第一批受益者？他们为什么愿意参与？参与后靠什么留下来或转介绍？",
+            "resolve_hint": "触达、参与动机和留存机制被说清。",
+        },
+    ],
+    "PR10": [
+        {
+            "strategy_id": "trust_transparency",
+            "strategy_name": "透明度证明",
+            "question": "如果一个陌生捐赠方今天来问你凭什么值得信任，你会拿出哪三样东西：财务公示、项目故事证据、第三方背书里至少两样？",
+            "resolve_hint": "项目开始具备对外公信力证据。",
+        },
+    ],
+    "PR11": [
+        {
+            "strategy_id": "pilot_to_scale",
+            "strategy_name": "试点到复制",
+            "question": "你的试点如果成功，下一站复制到哪里？复制必须保留哪些条件，哪些部分可以标准化？",
+            "resolve_hint": "出现试点结果、复制条件和扩散路径。",
+        },
+    ],
+    "PR12": [
+        {
+            "strategy_id": "volunteer_ops",
+            "strategy_name": "志愿者运营四件套",
+            "question": "如果项目依赖志愿者，请回答四项：招募渠道、培训流程、排班机制、非现金激励。",
+            "resolve_hint": "志愿者运营从口号变成机制。",
+        },
+    ],
+    "PR13": [
+        {
+            "strategy_id": "resource_continuity",
+            "strategy_name": "关键资源续航",
+            "question": "项目最怕哪一个关键资源突然断掉？一旦断掉，你的替代方案和风险缓冲是什么？",
+            "resolve_hint": "出现关键资源、替代方案与缓冲机制。",
+        },
+    ],
+    "PR14": [
+        {
+            "strategy_id": "policy_redline",
+            "strategy_name": "政策红线排查",
+            "question": "你的项目涉及哪些资质、政策或安全红线？如果没有这些条件，哪一步会先停摆？",
+            "resolve_hint": "政策合规要求进入执行路径，而不是停留在提醒层面。",
+        },
+    ],
+    "PR15": [
+        {
+            "strategy_id": "cocreation_mechanism",
+            "strategy_name": "多方共创机制",
+            "question": "企业、学校、医院、社区或政府里，哪两类伙伴会长期参与共创？他们各自交换什么价值？",
+            "resolve_hint": "多方协同不再只是名单，而是形成交换机制。",
+        },
+    ],
     "R1": [
         {
             "strategy_id": "elevator_pitch",

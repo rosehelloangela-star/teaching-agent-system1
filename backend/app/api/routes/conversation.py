@@ -333,6 +333,24 @@ async def bind_conversation_file(
     return conversation
 
 
+
+
+@router.delete("/{conversation_id}")
+def delete_conversation(
+    conversation_id: str,
+    student_id: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if conversation.student_id != student_id:
+        raise HTTPException(status_code=403, detail="无权删除该会话")
+
+    db.delete(conversation)
+    db.commit()
+    return {"status": "success", "conversation_id": conversation_id}
+
 @router.put("/{conversation_id}/state", response_model=ConversationResponse)
 def sync_conversation_state(
     conversation_id: str,
@@ -397,6 +415,7 @@ def save_class_report(
         report.report_content = request.report_content
     db.commit()
     return {"status": "success"}
+
 
 
 # import json

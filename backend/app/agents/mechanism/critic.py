@@ -12,7 +12,7 @@ from app.hypergraph.entity_matcher import detect_hyper_nodes
 from app.hypergraph.extractor import extract_hyperedges_from_text
 from app.hypergraph.hyper_engine import HypergraphEngine
 from app.hypergraph.semantic_guard import evaluate_hyperedge_semantics, build_stage_semantic_report, build_blocking_semantic_alerts, build_structural_field_notes
-from app.hypergraph.stage_config import PROJECT_STAGE_DEFINITIONS
+from app.hypergraph.stage_config import detect_project_type, get_stage_definitions, infer_project_type_from_stage_flow
 from app.hypergraph.stage_manager import build_project_stage_flow
 from app.kg.entity_matcher import detect_concepts
 from app.kg.graph_store import kg_store
@@ -187,16 +187,18 @@ def _build_semantic_context_text(semantic_report: Dict[str, object]) -> str:
 
 
 
-def _resolve_project_evaluation_stage_def(previous_stage_flow: Dict[str, object]) -> Dict[str, object]:
+def _resolve_project_evaluation_stage_def(previous_stage_flow: Dict[str, object], analysis_source_text: str = "", extracted_h_edges: Dict[str, List[str]] | None = None) -> Dict[str, object]:
+    project_type = infer_project_type_from_stage_flow(previous_stage_flow, fallback=detect_project_type(analysis_source_text, extracted_h_edges or {}))
+    stage_definitions = get_stage_definitions(project_type)
     pending_next_stage_index = int(previous_stage_flow.get("next_stage_index") or 0)
     if previous_stage_flow.get("overall_status") == "completed":
-        evaluation_stage_index = len(PROJECT_STAGE_DEFINITIONS)
+        evaluation_stage_index = len(stage_definitions)
     elif pending_next_stage_index:
         evaluation_stage_index = pending_next_stage_index
     else:
         evaluation_stage_index = int(previous_stage_flow.get("current_stage_index") or 1)
-    evaluation_stage_index = max(1, min(evaluation_stage_index, len(PROJECT_STAGE_DEFINITIONS)))
-    return next((item for item in PROJECT_STAGE_DEFINITIONS if int(item.get("index", 0)) == evaluation_stage_index), PROJECT_STAGE_DEFINITIONS[0])
+    evaluation_stage_index = max(1, min(evaluation_stage_index, len(stage_definitions)))
+    return next((item for item in stage_definitions if int(item.get("index", 0)) == evaluation_stage_index), stage_definitions[0])
 
 def _empty_learning_kg_context() -> Dict[str, object]:
     return {
@@ -396,30 +398,6 @@ def critic_node(state: dict) -> dict:
                 meta={"phase": "kg_exception", "error": str(e)},
             )
 
-    # if current_mode == "learning":
-    #     log_and_emit(state, "critic", f"进入知识图谱诊断分支。current_mode={current_mode}")
-    #     try:
-    #         all_db_nodes = kg_store.get_all_entity_names()
-    #         detected_concepts = detect_concepts(user_input, all_db_nodes, fuzzy_threshold=72, debug=True)
-    #         missing_prereqs = kg_store.diagnose_missing_prereqs(detected_concepts)
-    #         if missing_prereqs or detected_concepts:
-    #             engine_context = "【Neo4j 图谱前置诊断客观信息】（请在评估时严格参考）：\n"
-    #             if detected_concepts:
-    #                 engine_context += f"- 识别到项目已包含实体概念：{', '.join(detected_concepts)}\n"
-    #                 log_and_emit(state, "critic", f"知识图谱命中实体：{', '.join(detected_concepts)}")
-    #             if missing_prereqs:
-    #                 engine_context += f"- ⚠️ 逻辑断层预警，缺失前置核心概念(PREREQ)：{', '.join(missing_prereqs)}\n"
-    #                 log_and_emit(state, "critic", f"检测到缺失前置概念：{', '.join(missing_prereqs)}", level="warning")
-    #             for concept in detected_concepts:
-    #                 mistakes = kg_store.get_common_mistakes(concept)
-    #                 if mistakes:
-    #                     engine_context += f"- ⚠️ 针对'{concept}'，历史高发错误模式：{', '.join(mistakes)}\n"
-    #             log_and_emit(state, "critic", "知识图谱上下文组装完成。")
-    #         else:
-    #             log_and_emit(state, "critic", "未命中任何图谱实体，本轮不注入图谱上下文。")
-    #     except Exception as e:
-    #         log_and_emit(state, "critic", f"访问 Neo4j 图谱失败，已降级处理：{e}", level="warning")
-
     elif current_mode == "project":
         log_and_emit(state, "critic", f"进入超图诊断分支。current_mode={current_mode}")
         try:
@@ -428,11 +406,11 @@ def critic_node(state: dict) -> dict:
             extracted_nodes = _collect_hypergraph_nodes(extracted_h_edges)
 
             hg_engine = HypergraphEngine()
-            hg_engine.build_hypergraph(extracted_h_edges or {})
+            hg_engine.build_hypergraph(extracted_h_edges or {}, analysis_source_text)
             topology_alerts = hg_engine.run_topology_diagnostics()
 
             previous_stage_flow = (((state.get("analysis_snapshot") or {}).get("project") or {}).get("stage_flow") or {})
-            evaluation_stage_def = _resolve_project_evaluation_stage_def(previous_stage_flow)
+            evaluation_stage_def = _resolve_project_evaluation_stage_def(previous_stage_flow, analysis_source_text, extracted_h_edges)
             current_stage_rule_ids = list(evaluation_stage_def.get("rule_ids") or [])
 
             topology_stage_flow = build_project_stage_flow(
@@ -610,6 +588,7 @@ def critic_node(state: dict) -> dict:
             "llm_unavailable": True,
             "kg_context": kg_context,
         }
+
 
 
 # import time

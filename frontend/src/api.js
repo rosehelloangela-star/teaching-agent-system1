@@ -642,6 +642,18 @@ export const createConversation = async (studentId, title = '新对话') => {
   }
 };
 
+export const deleteConversation = async (conversationId, studentId) => {
+  try {
+    const response = await api.delete(`/conversations/${conversationId}`, {
+      params: { student_id: studentId },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('删除会话失败:', error);
+    throw error;
+  }
+};
+
 export const fetchConversationDetail = async (conversationId) => {
   try {
     const response = await api.get(`/conversations/${conversationId}`);

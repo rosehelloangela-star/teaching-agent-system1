@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, MessageSquare, Send, FileText, BookOpen, Briefcase, Trophy,
-  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize, Network, X, Tag, Target, Lightbulb, ShieldAlert
+  Bot, User, Sparkles, ChevronDown, ChevronUp, Loader2, Paperclip, AlertCircle, RefreshCcw, CheckCircle2, Lock, Maximize, Minimize, Network, X, Tag, Target, Lightbulb, ShieldAlert, Trash2
 } from 'lucide-react';
 import {
-  API_BASE_URL, bindConversationFile, createConversation, fetchConversationDetail, fetchConversations,
+  API_BASE_URL, bindConversationFile, createConversation, deleteConversation, fetchConversationDetail, fetchConversations,
   generateProjectStageDraft, runAgentStream, syncConversationState
 } from '../../api';
 
@@ -542,6 +542,39 @@ export default function FreeChatView({ currentUser }) {
       setCreatingConversation(false);
     }
   };
+  
+  const handleDeleteConversation = async (conversationId) => {
+  if (!currentUser?.id || !conversationId) return;
+
+  const targetConversation = conversationsRef.current.find((conv) => conv.id === conversationId);
+  const title = targetConversation?.title || '该对话';
+
+  if (!window.confirm(`确定删除“${title}”吗？删除后不可恢复。`)) return;
+
+  try {
+    await deleteConversation(conversationId, currentUser.id);
+
+    const nextList = conversationsRef.current.filter((conv) => conv.id !== conversationId);
+    conversationsRef.current = nextList;
+    setConversations(nextList);
+
+    if (activeConversationId === conversationId) {
+      const nextActiveId = nextList[0]?.id || null;
+      setActiveConversationId(nextActiveId);
+      setSnapshotOpen(false);
+      setKgOverlayOpen(false);
+      setDocViewerOpen(false);
+
+      if (!nextActiveId) {
+        setInput('');
+        setActiveMode('learning');
+      }
+    }
+  } catch (e) {
+    alert(e?.response?.data?.detail || e.message || '删除会话失败');
+  }
+};
+
 
   const handleNewConversation = async () => {
     if (!currentUser?.id) return;
@@ -1062,51 +1095,70 @@ export default function FreeChatView({ currentUser }) {
           )}
 
           {conversations.map((conversation) => (
-            <button
+            <div
               key={conversation.id}
-              onClick={() => {
-                void handleSelectConversation(conversation.id);
-              }}
-              className={`w-full text-left px-3 py-3 rounded-xl transition-all border ${activeConversationId === conversation.id
-                ? 'bg-brand-50 border-brand-200'
-                : 'bg-white border-slate-200 hover:border-brand-200'
-                }`}
+              className={`w-full px-3 py-3 rounded-xl transition-all border ${
+                activeConversationId === conversation.id
+                  ? 'bg-brand-50 border-brand-200'
+                  : 'bg-white border-slate-200 hover:border-brand-200'
+              }`}
             >
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-2 min-w-0">
-                  <MessageSquare
-                    size={15}
-                    className={
-                      activeConversationId === conversation.id ? 'text-brand-500' : 'text-slate-400'
-                    }
-                  />
-                  <span className="text-sm font-medium text-slate-700 truncate">
-                    {conversation.title}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {hasUnreadTeacherMessages(conversation.messages || []) && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                      教师新消息
-                    </span>
-                  )}
-                  {conversation.documentStatus === 'bound' && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
-                      已绑文档
-                    </span>
-                  )}
-                </div>
+              <div className="flex items-start justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSelectConversation(conversation.id);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <MessageSquare
+                        size={15}
+                        className={
+                          activeConversationId === conversation.id ? 'text-brand-500' : 'text-slate-400'
+                        }
+                      />
+                      <span className="text-sm font-medium text-slate-700 truncate">
+                        {conversation.title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {hasUnreadTeacherMessages(conversation.messages || []) && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                          教师新消息
+                        </span>
+                      )}
+                      {conversation.documentStatus === 'bound' && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                          已绑文档
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-              </div>
+                  <div className="text-xs text-slate-400 truncate">
+                    {conversation.boundFileName
+                      ? conversation.boundFileName
+                      : conversation.messages.length > 0
+                        ? getMessagePreview(conversation.messages[conversation.messages.length - 1])
+                        : '未绑定文档'}
+                  </div>
+                </button>
 
-              <div className="text-xs text-slate-400 truncate">
-                {conversation.boundFileName
-                  ? conversation.boundFileName
-                  : conversation.messages.length > 0
-                    ? getMessagePreview(conversation.messages[conversation.messages.length - 1])
-                    : '未绑定文档'}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDeleteConversation(conversation.id);
+                  }}
+                  className="shrink-0 mt-0.5 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="删除对话"
+                >
+                  <Trash2 size={15} />
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
