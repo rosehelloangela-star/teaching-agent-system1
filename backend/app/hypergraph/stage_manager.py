@@ -923,9 +923,12 @@ def build_project_stage_flow(
             rule_id = alert.get("rule")
             if not rule_id:
                 continue
-            if rule_id in previous_resolved_rule_ids:
+            # 【新增】获取当前规则的严重程度
+            severity = str(alert.get("severity") or "medium").lower() 
+            
+            # 【修改】只有非 critical 的规则才能享受 3 轮豁免期！高危问题绝对不宽恕！
+            if rule_id in previous_resolved_rule_ids and severity != "critical":
                 reopen_count = int(previous_reopened_rule_counts.get(rule_id, 0)) + 1
-                reopened_rule_counts[rule_id] = reopen_count
                 if reopen_count >= 3:
                     unresolved_rule_ids.append(rule_id)
                     active_alerts.append(alert)

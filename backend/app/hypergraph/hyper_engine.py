@@ -251,7 +251,7 @@ class HypergraphEngine:
                 "rule": "PR1",
                 "name": "受益对象界定偏弱",
                 "issue": "暂未明确抽取到公益服务对象定义超边，建议至少补清受益群体、服务场景和问题紧迫性中的两项。",
-                "severity": "high"
+                "severity": "critical"
             })
         elif targeting_strength <= 1:
             alerts.append({
@@ -282,7 +282,7 @@ class HypergraphEngine:
                 "rule": "PR3",
                 "name": "服务设计表达不充分",
                 "issue": "暂未明确抽取到公益服务设计超边，建议补清干预方式、核心服务和预期改变，不必一次写得很满。",
-                "severity": "high"
+                "severity": "critical"
             })
         elif value_strength <= 1:
             alerts.append({
@@ -322,7 +322,7 @@ class HypergraphEngine:
                 "rule": "PR5",
                 "name": "伦理保护表述不足",
                 "issue": "尚未明显抽取到隐私、同意或弱势群体保护内容。若项目涉及未成年人、老人、残障等群体，建议补一句保护机制。",
-                "severity": "medium"
+                "severity": "critical"
             })
         elif ethics_strength <= 1:
             alerts.append({
@@ -360,7 +360,7 @@ class HypergraphEngine:
                 "rule": "PR6",
                 "name": "筹资路径偏弱",
                 "issue": "当前还没有明显形成筹资模型，建议先补一个主要资金来源或申请渠道，不要求一次写成完整融资方案。",
-                "severity": "high"
+                "severity": "critical"
             })
         elif funding_strength <= 1:
             alerts.append({
@@ -390,7 +390,7 @@ class HypergraphEngine:
                 "rule": "PR8",
                 "name": "影响评估可验证性偏弱",
                 "issue": "当前缺少影响评估结构，建议补一个目标、一个指标或一种前后对比方式即可。",
-                "severity": "high"
+                "severity": "critical"
             })
         elif impact_strength <= 1:
             alerts.append({
@@ -473,7 +473,7 @@ class HypergraphEngine:
                 "rule": "PR11",
                 "name": "试点复制路径偏弱",
                 "issue": "试点结构已经出现，但复制条件或扩散路径仍不够清晰。",
-                "severity": "medium"
+                "severity": "critical"
             })
 
         if "Volunteer_Operations" not in active_edges:
@@ -496,7 +496,7 @@ class HypergraphEngine:
                 "rule": "PR13",
                 "name": "关键资源续航说明不足",
                 "issue": "目前缺少资源续航结构，建议补一个核心资源及其替代/缓冲方案。",
-                "severity": "high"
+                "severity": "critical"
             })
         elif resource_strength <= 1:
             alerts.append({
@@ -511,7 +511,7 @@ class HypergraphEngine:
                 "rule": "PR14",
                 "name": "政策合规表述偏弱",
                 "issue": "当前缺少政策/资质/安全红线结构，建议至少补一条合规依据或执行边界。",
-                "severity": "high"
+                "severity": "critical"
             })
         elif policy_strength <= 1:
             alerts.append({
