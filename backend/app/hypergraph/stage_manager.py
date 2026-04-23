@@ -932,14 +932,7 @@ def build_project_stage_flow(
             rule_id = alert.get("rule")
             if not rule_id:
                 continue
-            # 【修复】以 RULE_METADATA 判断规则是否为 critical，而非依赖 alert.severity。
-            # 原逻辑读取 alert.get("severity")，公益规则的 alert 可能未携带正确的
-            # severity 字段，导致 critical 规则被误判为非 critical，从而错误地进入
-            # 3 轮豁免期（sticky_reopened），而非立即计入 unresolved。
-            meta_severity = (RULE_METADATA.get(rule_id, {}).get("severity") or "medium").lower()
- 
-            # 只有 RULE_METADATA 中非 critical 的规则才能享受 3 轮豁免期！
-            if rule_id in previous_resolved_rule_ids and meta_severity != "critical":
+            if rule_id in previous_resolved_rule_ids:
                 reopen_count = int(previous_reopened_rule_counts.get(rule_id, 0)) + 1
                 if reopen_count >= 3:
                     unresolved_rule_ids.append(rule_id)
