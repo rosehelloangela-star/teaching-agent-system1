@@ -29,6 +29,20 @@ ENTITY_ALIASES: Dict[str, List[str]] = {
 def _normalize_text(text: str) -> str:
     return (text or "").strip().lower().replace(" ", "")
 
+
+def _first_match_pos(text: str, candidates: List[str]) -> int:
+    normalized_text = _normalize_text(text)
+    positions = []
+    for candidate in candidates or []:
+        normalized_candidate = _normalize_text(candidate)
+        if not normalized_candidate:
+            continue
+        pos = normalized_text.find(normalized_candidate)
+        if pos >= 0:
+            positions.append(pos)
+    return min(positions) if positions else 10**9
+
+
 def detect_concepts(
     user_input: str,
     all_db_nodes: List[str],
@@ -61,7 +75,13 @@ def detect_concepts(
                 detected.add(canonical_name); fuzzy_hits.append(f"{alias}({score}%)=>{canonical_name}")
                 break
 
-    ordered_detected = [node for node in all_db_nodes if node in detected]
+    ordered_detected = sorted(
+        detected,
+        key=lambda node: (
+            _first_match_pos(user_input, [node] + ENTITY_ALIASES.get(node, [])),
+            all_db_nodes.index(node) if node in all_db_nodes else 10**9,
+        )
+    )
 
     if debug:
         print("\n" + "-"*40, flush=True)

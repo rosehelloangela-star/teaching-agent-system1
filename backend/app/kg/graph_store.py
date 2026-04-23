@@ -252,14 +252,26 @@ class TeachingKnowledgeGraph:
             return []
 
         query = """
-        MATCH (n:Entity)-[rel]-(m:Entity)
-        WHERE n.name IN $concepts
+        UNWIND range(0, size($concepts) - 1) AS idx
+        WITH idx, $concepts[idx] AS concept
+        MATCH (n:Entity {name: concept})-[rel]-(m:Entity)
         RETURN DISTINCT
+            idx AS concept_order,
             n.name AS source,
             labels(n) AS source_labels,
             rel,
             m.name AS target,
-            labels(m) AS target_labels
+            labels(m) AS target_labels,
+            CASE type(rel)
+                WHEN 'PREREQ' THEN 0
+                WHEN 'HAS_POSITIVE_CASE' THEN 1
+                WHEN 'HAS_NEGATIVE_CASE' THEN 2
+                WHEN 'HAS_CASE' THEN 3
+                WHEN 'COMMON_MISTAKE' THEN 4
+                WHEN 'MAPPED_TO' THEN 5
+                ELSE 9
+            END AS rel_order
+        ORDER BY concept_order ASC, rel_order ASC, target ASC
         LIMIT $max_triples
         """
 
@@ -584,7 +596,6 @@ class TeachingKnowledgeGraph:
 
 
 kg_store = TeachingKnowledgeGraph()
-
 
 # import os
 # from collections import defaultdict
