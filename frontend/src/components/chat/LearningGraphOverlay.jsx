@@ -5,9 +5,23 @@ import ForceGraph2D from 'react-force-graph-2d';
 export default function LearningGraphOverlay({ open, kgContext, onClose }) {
   const fgRef = useRef(null);
 
-  const triples = kgContext?.triples || [];
+  const rawTriples = kgContext?.triples || [];
+  const triples = useMemo(() => (
+    rawTriples
+      .filter((t) => t?.source && t?.target && t?.relation)
+      .map((t) => ({
+        ...t,
+        relation: String(t.relation || '').toUpperCase()
+      }))
+  ), [rawTriples]);
+
   const hitNodes = kgContext?.hit_nodes || [];
+  const expandedNodes = kgContext?.expanded_nodes || [];
+  const missingPrereqs = kgContext?.missing_prereqs || [];
+
   const hitNodesSet = useMemo(() => new Set(hitNodes), [hitNodes]);
+  const expandedNodesSet = useMemo(() => new Set(expandedNodes), [expandedNodes]);
+  const missingPrereqSet = useMemo(() => new Set(missingPrereqs), [missingPrereqs]);
 
   const hitIndexMap = useMemo(() => {
     const map = new Map();
@@ -19,6 +33,7 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
     BLUE: '#3b82f6',
     GREEN: '#10b981',
     RED: '#ef4444',
+    AMBER: '#f59e0b',
     DEFAULT: '#94a3b8',
     LINK: '#cbd5e1',
     LINK_TEXT: '#64748b'
@@ -44,20 +59,19 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
   };
 
   const getNodeColorByName = (nodeName) => {
-    // 命中概念永远优先蓝色
-    if (hitNodesSet.has(nodeName)) {
-      return COLORS.BLUE;
-    }
+    // 命中概念永远优先蓝色；缺失前置概念用琥珀色，确保不会被误认为普通节点。
+    if (hitNodesSet.has(nodeName)) return COLORS.BLUE;
+    if (missingPrereqSet.has(nodeName)) return COLORS.AMBER;
 
     let hasRed = false;
     let hasGreen = false;
-    let hasBlue = false;
+    let hasBlue = expandedNodesSet.has(nodeName);
 
     for (const t of triples) {
       const involvesNode = t.source === nodeName || t.target === nodeName;
       if (!involvesNode) continue;
 
-      const rel = t.relation;
+      const rel = String(t.relation || '').toUpperCase();
       if (RED_RELATIONS.has(rel)) {
         hasRed = true;
       } else if (GREEN_RELATIONS.has(rel)) {
@@ -70,7 +84,6 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
     if (hasRed) return COLORS.RED;
     if (hasGreen) return COLORS.GREEN;
     if (hasBlue) return COLORS.BLUE;
-
     return COLORS.DEFAULT;
   };
 
@@ -79,33 +92,36 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
     if (color === COLORS.RED) return 'text-red-500';
     if (color === COLORS.GREEN) return 'text-emerald-600';
     if (color === COLORS.BLUE) return 'text-blue-600';
+    if (color === COLORS.AMBER) return 'text-amber-600';
     return 'text-slate-500';
   };
 
   const graphData = useMemo(() => {
-    if (!triples.length) return { nodes: [], links: [] };
-
     const nodeMap = new Map();
     const links = [];
 
     const registerNode = (id) => {
-      if (!nodeMap.has(id)) {
-        nodeMap.set(id, {
-          id,
-          name: id,
-          isHit: hitNodesSet.has(id)
-        });
-      }
+      if (!id || nodeMap.has(id)) return;
+      nodeMap.set(id, {
+        id,
+        name: id,
+        isHit: hitNodesSet.has(id),
+        isExpanded: expandedNodesSet.has(id),
+        isMissingPrereq: missingPrereqSet.has(id)
+      });
     };
+
+    hitNodes.forEach(registerNode);
+    expandedNodes.forEach(registerNode);
+    missingPrereqs.forEach(registerNode);
 
     triples.forEach((t) => {
       registerNode(t.source);
       registerNode(t.target);
-
       links.push({
         source: t.source,
         target: t.target,
-        label: t.relation
+        label: String(t.relation || '').toUpperCase()
       });
     });
 
@@ -119,28 +135,39 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
       links,
       typeMap: nodeMap
     };
-  }, [triples, hitNodesSet]);
+  }, [triples, hitNodes, expandedNodes, missingPrereqs, hitNodesSet, expandedNodesSet, missingPrereqSet]);
 
   const orderedTriples = useMemo(() => {
-    const relationPriority = (rel) => {
-      if (RED_RELATIONS.has(rel)) return 0;
-      if (GREEN_RELATIONS.has(rel)) return 1;
-      if (BLUE_RELATIONS.has(rel)) return 2;
+    const relationPriority = (relRaw) => {
+      const rel = String(relRaw || '').toUpperCase();
+      if (BLUE_RELATIONS.has(rel)) return 0;
+      if (RED_RELATIONS.has(rel)) return 1;
+      if (GREEN_RELATIONS.has(rel)) return 2;
       return 3;
     };
 
+    const nodeRank = (name) => {
+      if (hitNodesSet.has(name)) return getHitRank(name);
+      if (missingPrereqSet.has(name)) return hitNodes.length + 0.5;
+      if (expandedNodesSet.has(name)) return hitNodes.length + 1;
+      return Number.MAX_SAFE_INTEGER;
+    };
+
     const triplePriority = (triple) => {
-      const sourceRank = getHitRank(triple.source);
-      const targetRank = getHitRank(triple.target);
+      const sourceRank = nodeRank(triple.source);
+      const targetRank = nodeRank(triple.target);
       const bestRank = Math.min(sourceRank, targetRank);
 
       const sourceHit = hitNodesSet.has(triple.source);
       const targetHit = hitNodesSet.has(triple.target);
+      const sourcePrereq = missingPrereqSet.has(triple.source);
+      const targetPrereq = missingPrereqSet.has(triple.target);
 
-      let hitTypePriority = 3;
-      if (sourceHit && !targetHit) hitTypePriority = 0;
-      else if (!sourceHit && targetHit) hitTypePriority = 1;
-      else if (sourceHit && targetHit) hitTypePriority = 2;
+      let hitTypePriority = 4;
+      if (sourcePrereq || targetPrereq) hitTypePriority = 0;
+      else if (sourceHit && !targetHit) hitTypePriority = 1;
+      else if (!sourceHit && targetHit) hitTypePriority = 2;
+      else if (sourceHit && targetHit) hitTypePriority = 3;
 
       return {
         bestRank,
@@ -154,50 +181,46 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
     return [...triples].sort((a, b) => {
       const pa = triplePriority(a);
       const pb = triplePriority(b);
-
       if (pa.bestRank !== pb.bestRank) return pa.bestRank - pb.bestRank;
       if (pa.hitTypePriority !== pb.hitTypePriority) return pa.hitTypePriority - pb.hitTypePriority;
       if (pa.relationPriority !== pb.relationPriority) return pa.relationPriority - pb.relationPriority;
       if (pa.source !== pb.source) return pa.source.localeCompare(pb.source, 'zh-Hans-CN');
       return pa.target.localeCompare(pb.target, 'zh-Hans-CN');
     });
-  }, [triples, hitNodesSet, hitIndexMap]);
+  }, [triples, hitNodesSet, expandedNodesSet, missingPrereqSet, hitIndexMap, hitNodes.length]);
 
   const getTripleDisplay = (triple) => {
+    const rel = String(triple.relation || '').toUpperCase();
     const sourceHit = hitNodesSet.has(triple.source);
     const targetHit = hitNodesSet.has(triple.target);
 
-    // 只 target 命中：把 target 放上面
     if (!sourceHit && targetHit) {
       return {
         top: triple.target,
         bottom: triple.source,
-        relationText: `←[${triple.relation}]—`,
-        isMistakeRel: triple.relation === 'COMMON_MISTAKE'
+        relationText: `←[${rel}]—`,
+        isMistakeRel: rel === 'COMMON_MISTAKE'
       };
     }
 
-    // 两端都命中：谁在 hit_nodes 里更靠前，谁放上面
     if (sourceHit && targetHit) {
       const sourceRank = getHitRank(triple.source);
       const targetRank = getHitRank(triple.target);
-
       if (targetRank < sourceRank) {
         return {
           top: triple.target,
           bottom: triple.source,
-          relationText: `←[${triple.relation}]—`,
-          isMistakeRel: triple.relation === 'COMMON_MISTAKE'
+          relationText: `←[${rel}]—`,
+          isMistakeRel: rel === 'COMMON_MISTAKE'
         };
       }
     }
 
-    // 默认保持原方向
     return {
       top: triple.source,
       bottom: triple.target,
-      relationText: `—[${triple.relation}]→`,
-      isMistakeRel: triple.relation === 'COMMON_MISTAKE'
+      relationText: `—[${rel}]→`,
+      isMistakeRel: rel === 'COMMON_MISTAKE'
     };
   };
 
@@ -223,7 +246,7 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
               <Database size={20} />
               <div>
                 <h3 className="font-bold text-slate-800">当前对话的知识图谱拓扑</h3>
-                <p className="text-xs text-slate-500">学生命中概念优先展示；颜色按关系角色区分</p>
+                <p className="text-xs text-slate-500">学生命中概念优先展示；前置概念、跳跃扩展、案例与错误均来自 kgContext</p>
               </div>
             </div>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors">
@@ -243,7 +266,11 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                 <div className="absolute top-3 left-3 z-10 flex flex-wrap gap-2 max-w-full">
                   <span className="flex items-center gap-1.5 text-xs bg-white/90 backdrop-blur border border-slate-200 px-2.5 py-1.5 rounded-md shadow-sm text-slate-700 font-medium">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS.BLUE }}></span>
-                    查询命中 / PREREQ
+                    查询命中 / PREREQ / 扩展
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs bg-white/90 backdrop-blur border border-slate-200 px-2.5 py-1.5 rounded-md shadow-sm text-slate-700 font-medium">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS.AMBER }}></span>
+                    缺失前置概念
                   </span>
                   <span className="flex items-center gap-1.5 text-xs bg-white/90 backdrop-blur border border-slate-200 px-2.5 py-1.5 rounded-md shadow-sm text-slate-700 font-medium">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS.GREEN }}></span>
@@ -262,9 +289,10 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                   graphData={graphData}
                   nodeLabel="name"
                   linkColor={(link) => {
-                    if (RED_RELATIONS.has(link.label)) return '#fca5a5';
-                    if (GREEN_RELATIONS.has(link.label)) return '#86efac';
-                    if (BLUE_RELATIONS.has(link.label)) return '#93c5fd';
+                    const rel = String(link.label || '').toUpperCase();
+                    if (RED_RELATIONS.has(rel)) return '#fca5a5';
+                    if (GREEN_RELATIONS.has(rel)) return '#86efac';
+                    if (BLUE_RELATIONS.has(rel)) return '#93c5fd';
                     return COLORS.LINK;
                   }}
                   linkDirectionalArrowLength={4}
@@ -274,7 +302,7 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                     const fontSize = 12 / globalScale;
                     ctx.font = `${fontSize}px Sans-Serif`;
 
-                    const nodeRadius = node.isHit ? 8 : 6;
+                    const nodeRadius = node.isHit ? 8 : node.isMissingPrereq ? 7 : 6;
                     const bgColor = node.color || COLORS.DEFAULT;
 
                     ctx.beginPath();
@@ -286,7 +314,8 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                     ctx.stroke();
 
                     const shouldAlwaysShowLabel =
-                      node.isHit || bgColor === COLORS.BLUE || bgColor === COLORS.GREEN;
+                      node.isHit || node.isExpanded || node.isMissingPrereq ||
+                      bgColor === COLORS.BLUE || bgColor === COLORS.GREEN || bgColor === COLORS.RED || bgColor === COLORS.AMBER;
 
                     if (shouldAlwaysShowLabel) {
                       ctx.textAlign = 'center';
@@ -311,19 +340,20 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                     if (textAngle > Math.PI / 2) textAngle = -(Math.PI - textAngle);
                     if (textAngle < -Math.PI / 2) textAngle = -(Math.PI + textAngle);
 
+                    const label = String(link.label || '').toUpperCase();
                     ctx.font = `${MAX_FONT_SIZE}px Sans-Serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
 
                     let textColor = COLORS.LINK_TEXT;
                     let bg = 'rgba(255, 255, 255, 0.85)';
-                    if (RED_RELATIONS.has(link.label)) {
+                    if (RED_RELATIONS.has(label)) {
                       textColor = '#ef4444';
                       bg = 'rgba(254, 226, 226, 0.9)';
-                    } else if (GREEN_RELATIONS.has(link.label)) {
+                    } else if (GREEN_RELATIONS.has(label)) {
                       textColor = '#059669';
                       bg = 'rgba(220, 252, 231, 0.9)';
-                    } else if (BLUE_RELATIONS.has(link.label)) {
+                    } else if (BLUE_RELATIONS.has(label)) {
                       textColor = '#2563eb';
                       bg = 'rgba(219, 234, 254, 0.9)';
                     }
@@ -332,12 +362,12 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                     ctx.translate(textPos.x, textPos.y);
                     ctx.rotate(textAngle);
 
-                    const textWidth = ctx.measureText(link.label).width;
+                    const textWidth = ctx.measureText(label).width;
                     ctx.fillStyle = bg;
                     ctx.fillRect(-textWidth / 2 - 2, -MAX_FONT_SIZE / 2 - 1, textWidth + 4, MAX_FONT_SIZE + 2);
 
                     ctx.fillStyle = textColor;
-                    ctx.fillText(link.label, 0, 0);
+                    ctx.fillText(label, 0, 0);
                     ctx.restore();
                   }}
                 />
@@ -348,19 +378,46 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                   知识推理链路明细
                 </div>
 
-                {hitNodes.length > 0 && (
-                  <div className="px-4 py-3 border-b border-slate-100 bg-white sticky top-[49px] z-[9]">
-                    <div className="text-xs text-slate-500 mb-2">当前命中概念顺序</div>
-                    <div className="flex flex-wrap gap-2">
-                      {hitNodes.map((name, idx) => (
-                        <span
-                          key={`${name}-${idx}`}
-                          className="px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200"
-                        >
-                          {idx + 1}. {name}
-                        </span>
-                      ))}
-                    </div>
+                {(hitNodes.length > 0 || missingPrereqs.length > 0 || expandedNodes.length > 0) && (
+                  <div className="px-4 py-3 border-b border-slate-100 bg-white sticky top-[49px] z-[9] space-y-3">
+                    {hitNodes.length > 0 && (
+                      <div>
+                        <div className="text-xs text-slate-500 mb-2">当前命中概念顺序</div>
+                        <div className="flex flex-wrap gap-2">
+                          {hitNodes.map((name, idx) => (
+                            <span key={`hit-${name}-${idx}`} className="px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              {idx + 1}. {name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {missingPrereqs.length > 0 && (
+                      <div>
+                        <div className="text-xs text-slate-500 mb-2">缺失前置概念</div>
+                        <div className="flex flex-wrap gap-2">
+                          {missingPrereqs.map((name, idx) => (
+                            <span key={`missing-${name}-${idx}`} className="px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {expandedNodes.length > 0 && (
+                      <div>
+                        <div className="text-xs text-slate-500 mb-2">跳跃扩展概念</div>
+                        <div className="flex flex-wrap gap-2">
+                          {expandedNodes.map((name, idx) => (
+                            <span key={`expanded-${name}-${idx}`} className="px-2 py-1 rounded-full text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -369,38 +426,36 @@ export default function LearningGraphOverlay({ open, kgContext, onClose }) {
                     const display = getTripleDisplay(t);
                     const topColorClass = getTextColorClass(display.top);
                     const bottomColorClass = getTextColorClass(display.bottom);
-                    const isMistakeRel = display.isMistakeRel;
+                    const rel = String(t.relation || '').toUpperCase();
+                    const isMistakeRel = rel === 'COMMON_MISTAKE';
+                    const isPrereqRel = rel === 'PREREQ';
 
                     const relClass = isMistakeRel
                       ? 'text-red-400 border-red-300'
-                      : GREEN_RELATIONS.has(t.relation)
+                      : GREEN_RELATIONS.has(rel)
                         ? 'text-emerald-500 border-emerald-300'
-                        : BLUE_RELATIONS.has(t.relation)
+                        : BLUE_RELATIONS.has(rel)
                           ? 'text-blue-400 border-blue-300'
                           : 'text-slate-400 border-slate-300';
 
                     const cardBorder = isMistakeRel
                       ? 'border-red-200'
-                      : GREEN_RELATIONS.has(t.relation)
+                      : GREEN_RELATIONS.has(rel)
                         ? 'border-emerald-200'
-                        : BLUE_RELATIONS.has(t.relation)
+                        : BLUE_RELATIONS.has(rel)
                           ? 'border-blue-200'
                           : 'border-slate-200';
 
                     return (
-                      <div
-                        key={`${t.source}-${t.relation}-${t.target}-${idx}`}
-                        className={`bg-slate-50 border rounded-lg p-3 text-sm hover:shadow-md transition-shadow ${cardBorder}`}
-                      >
+                      <div key={`${t.source}-${rel}-${t.target}-${idx}`} className={`bg-slate-50 border rounded-lg p-3 text-sm hover:shadow-md transition-shadow ${cardBorder}`}>
                         <div className="flex flex-col gap-1.5">
                           <div className={`font-semibold ${topColorClass}`}>
                             {display.top}
                           </div>
-
                           <div className={`flex items-center gap-2 text-xs font-mono pl-2 border-l-2 ${relClass}`}>
                             {display.relationText}
+                            {isPrereqRel && <span className="font-sans text-[10px] text-blue-500">前置链路</span>}
                           </div>
-
                           <div className={`font-semibold ${bottomColorClass}`}>
                             {display.bottom}
                           </div>
